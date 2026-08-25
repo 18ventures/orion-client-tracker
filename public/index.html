@@ -34,7 +34,7 @@
   .mono{ font-family: 'IBM Plex Mono', monospace; }
 
   header{
-    padding: 32px 28px 24px;
+    padding: 32px 28px 0;
     border-bottom: 1px solid var(--hairline);
     background: linear-gradient(180deg, rgba(201,162,39,0.05), transparent);
   }
@@ -59,10 +59,20 @@
   .xp-bar-fill{ height:100%; background: linear-gradient(90deg, var(--gold), #E8C862); border-radius:3px; transition: width 0.5s ease; }
   .xp-text{ font-size:10px; color:var(--text-faint); margin-top:3px; font-family:'IBM Plex Mono', monospace; }
 
+  .tabs{ display:flex; gap:4px; margin-top:22px; }
+  .tab-btn{
+    padding:10px 22px; border:1px solid var(--hairline); border-bottom:none;
+    border-radius:10px 10px 0 0; background:var(--panel); color:var(--text-dim);
+    font-weight:700; font-size:13px; cursor:pointer; font-family:'IBM Plex Mono', monospace;
+    position:relative; top:1px;
+  }
+  .tab-btn.active{ background: var(--bg); color:var(--gold); border-color: var(--gold); }
+  .tab-btn:hover:not(.active){ color:var(--text); }
+
   .stats-row{
     display:grid; grid-template-columns: repeat(auto-fit, minmax(120px,1fr));
     gap:1px; background: var(--hairline);
-    margin-top:22px; border:1px solid var(--hairline); border-radius:10px; overflow:hidden;
+    border:1px solid var(--hairline); border-radius:0 10px 10px 10px; overflow:hidden;
   }
   .stat{ background: var(--panel); padding:14px 16px; }
   .stat-val{ font-family:'IBM Plex Mono', monospace; font-size:22px; font-weight:600; }
@@ -70,6 +80,7 @@
   .stat-val.green{ color:var(--green); }
   .stat-val.gold{ color:var(--gold); }
   .stat-val.rust{ color:var(--rust); }
+  header .stats-row{ margin-top:0; padding-bottom:22px; }
 
   .add-bar{
     padding: 18px 28px; border-bottom:1px solid var(--hairline);
@@ -82,7 +93,7 @@
     outline:none;
   }
   .add-bar input:focus, .add-bar select:focus{ border-color: var(--gold); }
-  .add-bar input#name{ flex:1; min-width:160px; }
+  .add-bar input.name-input{ flex:1; min-width:160px; }
   .btn{
     background: var(--gold); color:#14171C; border:none; padding:9px 18px;
     border-radius:7px; font-weight:700; font-size:13px; cursor:pointer;
@@ -127,11 +138,11 @@
 
   .toggle-row{ display:flex; gap:6px; margin-bottom:12px; flex-wrap:wrap; }
   .toggle-chip{
-    flex:1; min-width:0; text-align:center;
-    font-family:'IBM Plex Mono', monospace; font-size:10px; font-weight:600;
+    flex:1 1 auto; min-width:64px; text-align:center;
+    font-family:'IBM Plex Mono', monospace; font-size:9.5px; font-weight:600;
     padding:6px 4px; border-radius:6px; cursor:pointer; user-select:none;
     border:1px solid var(--hairline); background:transparent; color:var(--text-faint);
-    transition: all 0.15s ease;
+    transition: all 0.15s ease; line-height:1.3;
   }
   .toggle-chip.on{ background: var(--green-soft); color: var(--green); border-color: var(--green); }
   .toggle-chip:hover{ opacity:0.85; }
@@ -169,6 +180,23 @@
     text-align:center; color:var(--text-faint); font-size:11px;
   }
 
+  .prospect-list{ padding: 22px 28px 40px; display:flex; flex-direction:column; gap:10px; max-width: 640px; }
+  .prospect-card{
+    background: var(--panel); border:1px solid var(--hairline); border-radius:10px;
+    padding:14px 16px; display:flex; align-items:center; gap:14px;
+  }
+  .prospect-info{ flex:1; min-width:0; }
+  .prospect-name{ font-weight:700; font-size:14px; }
+  .prospect-meta{ font-size:11px; color:var(--text-faint); margin-top:2px; font-family:'IBM Plex Mono', monospace; }
+  .prospect-actions{ display:flex; gap:6px; flex-shrink:0; }
+  .prospect-actions button{
+    font-size:11px; padding:8px 12px; border-radius:6px; cursor:pointer;
+    font-family:'IBM Plex Mono', monospace; font-weight:600; border:1px solid transparent; white-space:nowrap;
+  }
+  .prospect-actions .promote-btn{ background: var(--green-soft); color: var(--green); }
+  .prospect-actions .decline-btn{ background: transparent; color:var(--text-faint); border:1px solid var(--hairline); width:30px; }
+  .prospect-actions .decline-btn:hover{ color: var(--rust); border-color:var(--rust); }
+
   .badges-section{ padding: 0 28px 36px; }
   .badges-title{ font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-dim); margin-bottom:12px; }
   .badges-row{ display:flex; flex-wrap:wrap; gap:10px; }
@@ -193,7 +221,7 @@
   <div class="header-top">
     <div>
       <p class="eyebrow">// mirror bot · client acquisition</p>
-      <h1>Client Pipeline</h1>
+      <h1 id="pageTitle">Client Pipeline</h1>
     </div>
     <div class="level-badge">
       <div>
@@ -207,33 +235,17 @@
     </div>
   </div>
 
-  <div class="stats-row">
-    <div class="stat"><div class="stat-val" id="statTotal">0</div><div class="stat-label">In Pipeline</div></div>
-    <div class="stat"><div class="stat-val green" id="statLive">0</div><div class="stat-label">Live Clients</div></div>
-    <div class="stat"><div class="stat-val gold" id="statConv">0%</div><div class="stat-label">Conversion</div></div>
-    <div class="stat"><div class="stat-val rust" id="statStalled">0</div><div class="stat-label">Stalled</div></div>
-    <div class="stat"><div class="stat-val gold" id="statRevenue">£0</div><div class="stat-label">Monthly Revenue</div></div>
+  <div class="tabs">
+    <div class="tab-btn" id="tab-pipeline" onclick="switchTab('pipeline')">Pipeline</div>
+    <div class="tab-btn" id="tab-prospecting" onclick="switchTab('prospecting')">Prospecting</div>
   </div>
+
+  <div class="stats-row" id="statsRow"></div>
 </header>
 
-<div class="add-bar">
-  <input id="name" placeholder="Client name or handle" />
-  <select id="source">
-    <option value="Referral">Referral</option>
-    <option value="Telegram">Telegram inbound</option>
-    <option value="Warm intro">Warm intro</option>
-    <option value="Cold outreach">Cold outreach</option>
-    <option value="Family">Family</option>
-    <option value="Friend">Friend</option>
-    <option value="Social event">Social event</option>
-    <option value="Business event">Business event</option>
-    <option value="Other">Other</option>
-  </select>
-  <input id="datePaid" type="date" title="Date paid (optional, can add later)" />
-  <button class="btn" onclick="addClient()">+ Add to pipeline</button>
-</div>
+<div class="add-bar" id="addBar"></div>
 
-<div class="funnel" id="funnel"></div>
+<div id="mainContent"></div>
 
 <div class="badges-section">
   <div class="badges-title">Milestones</div>
@@ -248,8 +260,12 @@ const STAGES = ["Contacted", "Telegram Integration", "Wallet Ready", "Exchange",
 const STAGE_XP = [5, 10, 15, 20, 50];
 const MONTHLY_FEE_GBP = 60;
 const LAST_STAGE = STAGES.length - 1;
+const TELEGRAM_STAGE = 1;
 const WALLET_STAGE = 2;
 const EXCHANGE_STAGE = 3;
+const ASSUMED_CONVERSION_RATE = 0.15; // assumed 15% of prospects convert every 30 days
+const SOURCES = ["Referral","Telegram","Warm intro","Cold outreach","Family","Friend","Social event","Business event","Other"];
+
 const BADGES = [
   { id:'first_contact', label:'First Contact', check: s => s.clients.length >= 1 },
   { id:'first_live',    label:'First Client Live', check: s => s.clients.filter(c=>c.stage===LAST_STAGE).length >= 1 },
@@ -258,7 +274,16 @@ const BADGES = [
   { id:'ten_pipeline',  label:'10 In Pipeline', check: s => s.clients.length >= 10 },
 ];
 
-let state = { clients: [], xp: 0, earnedBadges: [] };
+let state = {
+  clients: [],
+  prospects: [],
+  prospectHistory: { added: 0, converted: 0, declined: 0 },
+  xp: 0,
+  earnedBadges: []
+};
+
+let activeTab = 'pipeline';
+let editingId = null;
 
 // Optional: if you set PIPELINE_PASSWORD in Railway, put the same value here
 // so write requests authenticate. Leave blank if you didn't set one.
@@ -271,7 +296,16 @@ async function loadState(){
   const note = document.getElementById('syncNote');
   try{
     const res = await fetch('/api/state');
-    if(res.ok){ state = await res.json(); }
+    if(res.ok){
+      const loaded = await res.json();
+      state = Object.assign({
+        clients: [], prospects: [],
+        prospectHistory: { added: 0, converted: 0, declined: 0 },
+        xp: 0, earnedBadges: []
+      }, loaded);
+      if(!state.prospects) state.prospects = [];
+      if(!state.prospectHistory) state.prospectHistory = { added: 0, converted: 0, declined: 0 };
+    }
     note.textContent = 'synced';
   }catch(e){
     console.log('No existing state or fetch failed, starting fresh', e);
@@ -312,6 +346,12 @@ function levelFromXP(xp){
   return { level, cum, needed, progress: xp - cum };
 }
 
+function switchTab(tab){
+  activeTab = tab;
+  editingId = null;
+  render();
+}
+
 function addClient(){
   const nameInput = document.getElementById('name');
   const name = nameInput.value.trim();
@@ -324,9 +364,17 @@ function addClient(){
     name, source, stage: 0,
     lastMove: todayStr(),
     stalled: false,
+    tokenIdCaptured: false,
+    commandsLive: false,
     metamask: false,
     rabby: false,
     agentApproved: false,
+    hyperliquid: false,
+    lighter: false,
+    cex: false,
+    commandsFunctioning: false,
+    testTradesSuccessful: false,
+    accountFullyFunded: false,
     datePaid
   });
   addXP(STAGE_XP[0]);
@@ -358,8 +406,6 @@ function nextRenewalDate(datePaidStr){
   while(d <= now){ d = addMonthsDate(d, 1); }
   return d.toISOString().slice(0,10);
 }
-
-let editingId = null;
 
 function startEdit(id){
   editingId = id;
@@ -407,6 +453,58 @@ function removeClient(id){
   render();
 }
 
+function addProspect(){
+  const nameInput = document.getElementById('prospectName');
+  const name = nameInput.value.trim();
+  if(!name) return;
+  const source = document.getElementById('prospectSource').value;
+  state.prospects.push({
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2,6),
+    name, source,
+    addedDate: todayStr()
+  });
+  state.prospectHistory.added += 1;
+  nameInput.value = '';
+  saveState();
+  render();
+}
+
+function promoteProspect(id){
+  const p = state.prospects.find(x => x.id === id);
+  if(!p) return;
+  state.prospects = state.prospects.filter(x => x.id !== id);
+  state.prospectHistory.converted += 1;
+  state.clients.push({
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2,6),
+    name: p.name, source: p.source, stage: 0,
+    lastMove: todayStr(),
+    stalled: false,
+    tokenIdCaptured: false,
+    commandsLive: false,
+    metamask: false,
+    rabby: false,
+    agentApproved: false,
+    hyperliquid: false,
+    lighter: false,
+    cex: false,
+    commandsFunctioning: false,
+    testTradesSuccessful: false,
+    accountFullyFunded: false,
+    datePaid: todayStr()
+  });
+  addXP(STAGE_XP[0]);
+  checkBadges();
+  saveState();
+  render();
+}
+
+function declineProspect(id){
+  state.prospects = state.prospects.filter(x => x.id !== id);
+  state.prospectHistory.declined += 1;
+  saveState();
+  render();
+}
+
 function checkBadges(){
   BADGES.forEach(b => {
     if(!state.earnedBadges.includes(b.id) && b.check(state)){
@@ -430,8 +528,89 @@ function pulseLabel(c){
 }
 
 function render(){
-  const funnel = document.getElementById('funnel');
-  funnel.innerHTML = '';
+  document.getElementById('tab-pipeline').classList.toggle('active', activeTab === 'pipeline');
+  document.getElementById('tab-prospecting').classList.toggle('active', activeTab === 'prospecting');
+  document.getElementById('pageTitle').textContent = activeTab === 'pipeline' ? 'Client Pipeline' : 'Prospecting';
+
+  renderStatsAndAddBar();
+
+  const mainContent = document.getElementById('mainContent');
+  mainContent.innerHTML = '';
+  if(activeTab === 'pipeline'){
+    mainContent.appendChild(buildFunnel());
+  } else {
+    mainContent.appendChild(buildProspectList());
+  }
+
+  const { level, needed, progress } = levelFromXP(state.xp);
+  document.getElementById('levelNum').textContent = level;
+  document.getElementById('xpFill').style.width = Math.min(100, (progress/needed)*100) + '%';
+  document.getElementById('xpText').textContent = `${progress} / ${needed} XP`;
+
+  const badgesRow = document.getElementById('badgesRow');
+  badgesRow.innerHTML = '';
+  BADGES.forEach(b => {
+    const earned = state.earnedBadges.includes(b.id);
+    const el = document.createElement('div');
+    el.className = 'badge' + (earned ? ' earned' : '');
+    el.innerHTML = `<div class="badge-icon">${earned ? '✓' : '·'}</div>${b.label}`;
+    badgesRow.appendChild(el);
+  });
+}
+
+function renderStatsAndAddBar(){
+  const statsRow = document.getElementById('statsRow');
+  const addBar = document.getElementById('addBar');
+
+  if(activeTab === 'pipeline'){
+    const total = state.clients.length;
+    const live = state.clients.filter(c => c.stage === LAST_STAGE).length;
+    const payingCount = state.clients.filter(c => c.datePaid).length;
+    const monthlyRevenue = payingCount * MONTHLY_FEE_GBP;
+
+    statsRow.innerHTML = `
+      <div class="stat"><div class="stat-val" id="statTotal">${total}</div><div class="stat-label">In Pipeline</div></div>
+      <div class="stat"><div class="stat-val green" id="statLive">${live}</div><div class="stat-label">Live Clients</div></div>
+      <div class="stat"><div class="stat-val gold" id="statRevenue">£${monthlyRevenue.toLocaleString()}</div><div class="stat-label">Monthly Revenue</div></div>
+    `;
+
+    const sourceOptions = SOURCES.map(s => `<option value="${s}">${s}</option>`).join('');
+    addBar.innerHTML = `
+      <input id="name" class="name-input" placeholder="Client name or handle" />
+      <select id="source">${sourceOptions}</select>
+      <input id="datePaid" type="date" title="Date paid (optional, can add later)" />
+      <button class="btn" onclick="addClient()">+ Add to pipeline</button>
+    `;
+    document.getElementById('name').addEventListener('keydown', e => { if(e.key === 'Enter') addClient(); });
+
+  } else {
+    const prospectCount = state.prospects.length;
+    const { added, converted } = state.prospectHistory;
+    const actualRate = added > 0 ? Math.round((converted / added) * 100) : 0;
+    const potentialRevenue = Math.round(prospectCount * ASSUMED_CONVERSION_RATE * MONTHLY_FEE_GBP);
+
+    statsRow.innerHTML = `
+      <div class="stat"><div class="stat-val" id="statProspects">${prospectCount}</div><div class="stat-label">Prospects</div></div>
+      <div class="stat"><div class="stat-val green" id="statConverted">${converted}</div><div class="stat-label">Converted (all-time)</div></div>
+      <div class="stat"><div class="stat-val gold" id="statActualRate">${actualRate}%</div><div class="stat-label">Actual Conversion Rate</div></div>
+      <div class="stat"><div class="stat-val gold" id="statPotential">£${potentialRevenue.toLocaleString()}</div><div class="stat-label">Potential Revenue</div></div>
+    `;
+
+    const sourceOptions = SOURCES.map(s => `<option value="${s}">${s}</option>`).join('');
+    addBar.innerHTML = `
+      <input id="prospectName" class="name-input" placeholder="Prospect name or handle" />
+      <select id="prospectSource">${sourceOptions}</select>
+      <button class="btn" onclick="addProspect()">+ Add prospect</button>
+    `;
+    document.getElementById('prospectName').addEventListener('keydown', e => { if(e.key === 'Enter') addProspect(); });
+  }
+}
+
+function buildFunnel(){
+  const funnel = document.createElement('div');
+  funnel.className = 'funnel';
+  funnel.id = 'funnel';
+
   STAGES.forEach((stageName, idx) => {
     const col = document.createElement('div');
     col.className = 'stage-col';
@@ -447,8 +626,7 @@ function render(){
         card.className = 'card';
 
         if(editingId === c.id){
-          const sourceOptions = ["Referral","Telegram","Warm intro","Cold outreach","Family","Friend","Social event","Business event","Other"]
-            .map(s => `<option value="${s}" ${c.source===s?'selected':''}>${s}</option>`).join('');
+          const sourceOptions = SOURCES.map(s => `<option value="${s}" ${c.source===s?'selected':''}>${s}</option>`).join('');
           card.innerHTML = `
             <div class="edit-form">
               <div>
@@ -474,7 +652,13 @@ function render(){
         }
 
         let toggleRow = '';
-        if(idx === WALLET_STAGE){
+        if(idx === TELEGRAM_STAGE){
+          toggleRow = `
+          <div class="toggle-row">
+            <div class="toggle-chip ${c.tokenIdCaptured ? 'on' : ''}" onclick="toggleStatus('${c.id}','tokenIdCaptured')">Token ID Captured</div>
+            <div class="toggle-chip ${c.commandsLive ? 'on' : ''}" onclick="toggleStatus('${c.id}','commandsLive')">Commands Live</div>
+          </div>`;
+        } else if(idx === WALLET_STAGE){
           toggleRow = `
           <div class="toggle-row">
             <div class="toggle-chip ${c.metamask ? 'on' : ''}" onclick="toggleStatus('${c.id}','metamask')">Metamask</div>
@@ -483,7 +667,17 @@ function render(){
         } else if(idx === EXCHANGE_STAGE){
           toggleRow = `
           <div class="toggle-row">
+            <div class="toggle-chip ${c.hyperliquid ? 'on' : ''}" onclick="toggleStatus('${c.id}','hyperliquid')">Hyperliquid</div>
+            <div class="toggle-chip ${c.lighter ? 'on' : ''}" onclick="toggleStatus('${c.id}','lighter')">Lighter</div>
+            <div class="toggle-chip ${c.cex ? 'on' : ''}" onclick="toggleStatus('${c.id}','cex')">CEX</div>
             <div class="toggle-chip ${c.agentApproved ? 'on' : ''}" onclick="toggleStatus('${c.id}','agentApproved')">Agent Approved</div>
+          </div>`;
+        } else if(idx === LAST_STAGE){
+          toggleRow = `
+          <div class="toggle-row">
+            <div class="toggle-chip ${c.commandsFunctioning ? 'on' : ''}" onclick="toggleStatus('${c.id}','commandsFunctioning')">Commands Functioning</div>
+            <div class="toggle-chip ${c.testTradesSuccessful ? 'on' : ''}" onclick="toggleStatus('${c.id}','testTradesSuccessful')">Test Trades Successful</div>
+            <div class="toggle-chip ${c.accountFullyFunded ? 'on' : ''}" onclick="toggleStatus('${c.id}','accountFullyFunded')">Account Fully Funded</div>
           </div>`;
         }
 
@@ -518,32 +712,36 @@ function render(){
     funnel.appendChild(col);
   });
 
-  const total = state.clients.length;
-  const live = state.clients.filter(c => c.stage === LAST_STAGE).length;
-  const stalled = state.clients.filter(c => c.stalled).length;
-  const conv = total > 0 ? Math.round((live/total)*100) : 0;
-  document.getElementById('statTotal').textContent = total;
-  document.getElementById('statLive').textContent = live;
-  document.getElementById('statConv').textContent = conv + '%';
-  document.getElementById('statStalled').textContent = stalled;
-  const payingCount = state.clients.filter(c => c.datePaid).length;
-  const monthlyRevenue = payingCount * MONTHLY_FEE_GBP;
-  document.getElementById('statRevenue').textContent = '£' + monthlyRevenue.toLocaleString();
+  return funnel;
+}
 
-  const { level, needed, progress } = levelFromXP(state.xp);
-  document.getElementById('levelNum').textContent = level;
-  document.getElementById('xpFill').style.width = Math.min(100, (progress/needed)*100) + '%';
-  document.getElementById('xpText').textContent = `${progress} / ${needed} XP`;
+function buildProspectList(){
+  const wrap = document.createElement('div');
+  wrap.className = 'prospect-list';
 
-  const badgesRow = document.getElementById('badgesRow');
-  badgesRow.innerHTML = '';
-  BADGES.forEach(b => {
-    const earned = state.earnedBadges.includes(b.id);
-    const el = document.createElement('div');
-    el.className = 'badge' + (earned ? ' earned' : '');
-    el.innerHTML = `<div class="badge-icon">${earned ? '✓' : '·'}</div>${b.label}`;
-    badgesRow.appendChild(el);
+  if(state.prospects.length === 0){
+    wrap.innerHTML = `<div class="empty-slot">No prospects yet — add people you haven't reached out to, or who haven't paid.</div>`;
+    return wrap;
+  }
+
+  state.prospects.forEach(p => {
+    const days = daysBetween(p.addedDate, todayStr());
+    const card = document.createElement('div');
+    card.className = 'prospect-card';
+    card.innerHTML = `
+      <div class="prospect-info">
+        <div class="prospect-name">${escapeHtml(p.name)}</div>
+        <div class="prospect-meta">${escapeHtml(p.source)} · added ${days === 0 ? 'today' : days + 'd ago'}</div>
+      </div>
+      <div class="prospect-actions">
+        <button class="promote-btn" onclick="promoteProspect('${p.id}')">Promote to Client</button>
+        <button class="decline-btn" title="Remove / declined" onclick="declineProspect('${p.id}')">✕</button>
+      </div>
+    `;
+    wrap.appendChild(card);
   });
+
+  return wrap;
 }
 
 function escapeHtml(s){
@@ -569,10 +767,6 @@ function launchConfetti(){
     setTimeout(() => el.remove(), duration);
   }
 }
-
-document.getElementById('name').addEventListener('keydown', e => {
-  if(e.key === 'Enter') addClient();
-});
 
 loadState();
 </script>
