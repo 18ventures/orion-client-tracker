@@ -297,6 +297,16 @@ async function loadState(){
       }, loaded);
       if(!state.prospects) state.prospects = [];
       if(!state.prospectHistory) state.prospectHistory = { added: 0, converted: 0, declined: 0 };
+      // Migrate prospects added before the column/stage system existed
+      state.prospects = state.prospects.map(p => Object.assign({
+        stage: 0,
+        discussedBotCall: false,
+        discussedBotInPerson: false,
+        discussed2xCall: false,
+        discussed2xInPerson: false,
+        materialProfits: false,
+        materialWebsite: false
+      }, p, { stage: (typeof p.stage === 'number') ? p.stage : 0 }));
     }
     note.textContent = 'synced';
   }catch(e){
