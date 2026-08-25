@@ -212,6 +212,7 @@
     <div class="stat"><div class="stat-val green" id="statLive">0</div><div class="stat-label">Live Clients</div></div>
     <div class="stat"><div class="stat-val gold" id="statConv">0%</div><div class="stat-label">Conversion</div></div>
     <div class="stat"><div class="stat-val rust" id="statStalled">0</div><div class="stat-label">Stalled</div></div>
+    <div class="stat"><div class="stat-val gold" id="statRevenue">£0</div><div class="stat-label">Monthly Revenue</div></div>
   </div>
 </header>
 
@@ -245,6 +246,7 @@
 <script>
 const STAGES = ["Contacted", "Telegram Integration", "Wallet Ready", "Exchange", "Live"];
 const STAGE_XP = [5, 10, 15, 20, 50];
+const MONTHLY_FEE_GBP = 60;
 const LAST_STAGE = STAGES.length - 1;
 const WALLET_STAGE = 2;
 const EXCHANGE_STAGE = 3;
@@ -524,6 +526,9 @@ function render(){
   document.getElementById('statLive').textContent = live;
   document.getElementById('statConv').textContent = conv + '%';
   document.getElementById('statStalled').textContent = stalled;
+  const payingCount = state.clients.filter(c => c.datePaid).length;
+  const monthlyRevenue = payingCount * MONTHLY_FEE_GBP;
+  document.getElementById('statRevenue').textContent = '£' + monthlyRevenue.toLocaleString();
 
   const { level, needed, progress } = levelFromXP(state.xp);
   document.getElementById('levelNum').textContent = level;
