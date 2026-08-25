@@ -172,6 +172,7 @@
   }
   .card-actions button.stall-btn{ background: transparent; color:var(--text-faint); border:1px solid var(--hairline); flex:none; width:30px; }
   .card-actions button.stall-btn:hover{ color: var(--rust); border-color:var(--rust); }
+  .card-actions button.promote-btn{ background: var(--green-soft); color: var(--green); }
   .card-actions button:hover{ opacity:0.85; }
   .card-actions button:disabled{ opacity:0.3; cursor:default; }
 
@@ -180,22 +181,10 @@
     text-align:center; color:var(--text-faint); font-size:11px;
   }
 
-  .prospect-list{ padding: 22px 28px 40px; display:flex; flex-direction:column; gap:10px; max-width: 640px; }
-  .prospect-card{
-    background: var(--panel); border:1px solid var(--hairline); border-radius:10px;
-    padding:14px 16px; display:flex; align-items:center; gap:14px;
+  .prospect-funnel{
+    display:grid; grid-template-columns: repeat(4, minmax(220px,1fr));
+    gap:14px; padding: 22px 28px 40px; overflow-x:auto;
   }
-  .prospect-info{ flex:1; min-width:0; }
-  .prospect-name{ font-weight:700; font-size:14px; }
-  .prospect-meta{ font-size:11px; color:var(--text-faint); margin-top:2px; font-family:'IBM Plex Mono', monospace; }
-  .prospect-actions{ display:flex; gap:6px; flex-shrink:0; }
-  .prospect-actions button{
-    font-size:11px; padding:8px 12px; border-radius:6px; cursor:pointer;
-    font-family:'IBM Plex Mono', monospace; font-weight:600; border:1px solid transparent; white-space:nowrap;
-  }
-  .prospect-actions .promote-btn{ background: var(--green-soft); color: var(--green); }
-  .prospect-actions .decline-btn{ background: transparent; color:var(--text-faint); border:1px solid var(--hairline); width:30px; }
-  .prospect-actions .decline-btn:hover{ color: var(--rust); border-color:var(--rust); }
 
   .badges-section{ padding: 0 28px 36px; }
   .badges-title{ font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-dim); margin-bottom:12px; }
@@ -265,6 +254,9 @@ const WALLET_STAGE = 2;
 const EXCHANGE_STAGE = 3;
 const ASSUMED_CONVERSION_RATE = 0.15; // assumed 15% of prospects convert every 30 days
 const SOURCES = ["Referral","Telegram","Warm intro","Cold outreach","Family","Friend","Social event","Business event","Other"];
+const PROSPECT_STAGES = ["Haven't Contacted", "Discussed Bot", "Discussed 2x", "Showed Material"];
+const PROSPECT_LAST_STAGE = PROSPECT_STAGES.length - 1;
+const PROSPECT_XP = [2, 5, 8, 12];
 
 const BADGES = [
   { id:'first_contact', label:'First Contact', check: s => s.clients.length >= 1 },
@@ -357,11 +349,12 @@ function addClient(){
   const name = nameInput.value.trim();
   if(!name) return;
   const source = document.getElementById('source').value;
+  const referredBy = source === 'Referral' ? (document.getElementById('referredBy').value.trim() || null) : null;
   const datePaidInput = document.getElementById('datePaid');
   const datePaid = datePaidInput.value || null;
   state.clients.push({
     id: Date.now().toString(36) + Math.random().toString(36).slice(2,6),
-    name, source, stage: 0,
+    name, source, referredBy, stage: 0,
     lastMove: todayStr(),
     stalled: false,
     tokenIdCaptured: false,
@@ -422,9 +415,12 @@ function saveEdit(id){
   if(!c) return;
   const name = document.getElementById(`edit-name-${id}`).value.trim();
   const source = document.getElementById(`edit-source-${id}`).value;
+  const referredByEl = document.getElementById(`edit-referredBy-${id}`);
+  const referredBy = source === 'Referral' ? (referredByEl.value.trim() || null) : null;
   const datePaid = document.getElementById(`edit-datePaid-${id}`).value || null;
   if(name) c.name = name;
   c.source = source;
+  c.referredBy = referredBy;
   c.datePaid = datePaid;
   editingId = null;
   saveState();
@@ -458,13 +454,38 @@ function addProspect(){
   const name = nameInput.value.trim();
   if(!name) return;
   const source = document.getElementById('prospectSource').value;
+  const referredBy = source === 'Referral' ? (document.getElementById('prospectReferredBy').value.trim() || null) : null;
   state.prospects.push({
     id: Date.now().toString(36) + Math.random().toString(36).slice(2,6),
-    name, source,
+    name, source, referredBy,
+    stage: 0,
+    discussedBotCall: false,
+    discussedBotInPerson: false,
+    discussed2xCall: false,
+    discussed2xInPerson: false,
+    materialProfits: false,
+    materialWebsite: false,
     addedDate: todayStr()
   });
   state.prospectHistory.added += 1;
   nameInput.value = '';
+  saveState();
+  render();
+}
+
+function advanceProspect(id){
+  const p = state.prospects.find(x => x.id === id);
+  if(!p || p.stage >= PROSPECT_LAST_STAGE) return;
+  p.stage += 1;
+  addXP(PROSPECT_XP[p.stage]);
+  saveState();
+  render();
+}
+
+function toggleProspectStatus(id, field){
+  const p = state.prospects.find(x => x.id === id);
+  if(!p) return;
+  p[field] = !p[field];
   saveState();
   render();
 }
@@ -476,7 +497,7 @@ function promoteProspect(id){
   state.prospectHistory.converted += 1;
   state.clients.push({
     id: Date.now().toString(36) + Math.random().toString(36).slice(2,6),
-    name: p.name, source: p.source, stage: 0,
+    name: p.name, source: p.source, referredBy: p.referredBy || null, stage: 0,
     lastMove: todayStr(),
     stalled: false,
     tokenIdCaptured: false,
@@ -539,7 +560,7 @@ function render(){
   if(activeTab === 'pipeline'){
     mainContent.appendChild(buildFunnel());
   } else {
-    mainContent.appendChild(buildProspectList());
+    mainContent.appendChild(buildProspectFunnel());
   }
 
   const { level, needed, progress } = levelFromXP(state.xp);
@@ -578,10 +599,16 @@ function renderStatsAndAddBar(){
     addBar.innerHTML = `
       <input id="name" class="name-input" placeholder="Client name or handle" />
       <select id="source">${sourceOptions}</select>
+      <input id="referredBy" placeholder="Referred by" style="display:none;" />
       <input id="datePaid" type="date" title="Date paid (optional, can add later)" />
       <button class="btn" onclick="addClient()">+ Add to pipeline</button>
     `;
     document.getElementById('name').addEventListener('keydown', e => { if(e.key === 'Enter') addClient(); });
+    const sourceSel = document.getElementById('source');
+    const referredByInput = document.getElementById('referredBy');
+    const toggleReferredBy = () => { referredByInput.style.display = sourceSel.value === 'Referral' ? '' : 'none'; };
+    sourceSel.addEventListener('change', toggleReferredBy);
+    toggleReferredBy();
 
   } else {
     const prospectCount = state.prospects.length;
@@ -600,9 +627,15 @@ function renderStatsAndAddBar(){
     addBar.innerHTML = `
       <input id="prospectName" class="name-input" placeholder="Prospect name or handle" />
       <select id="prospectSource">${sourceOptions}</select>
+      <input id="prospectReferredBy" placeholder="Referred by" style="display:none;" />
       <button class="btn" onclick="addProspect()">+ Add prospect</button>
     `;
     document.getElementById('prospectName').addEventListener('keydown', e => { if(e.key === 'Enter') addProspect(); });
+    const prospectSourceSel = document.getElementById('prospectSource');
+    const prospectReferredByInput = document.getElementById('prospectReferredBy');
+    const toggleProspectReferredBy = () => { prospectReferredByInput.style.display = prospectSourceSel.value === 'Referral' ? '' : 'none'; };
+    prospectSourceSel.addEventListener('change', toggleProspectReferredBy);
+    toggleProspectReferredBy();
   }
 }
 
@@ -637,6 +670,10 @@ function buildFunnel(){
                 <label>Source</label>
                 <select id="edit-source-${c.id}">${sourceOptions}</select>
               </div>
+              <div id="edit-referredByWrap-${c.id}" style="display:${c.source==='Referral' ? '' : 'none'};">
+                <label>Referred by</label>
+                <input id="edit-referredBy-${c.id}" value="${escapeHtml(c.referredBy || '')}" />
+              </div>
               <div>
                 <label>Date paid</label>
                 <input id="edit-datePaid-${c.id}" type="date" value="${c.datePaid || ''}" />
@@ -648,6 +685,11 @@ function buildFunnel(){
             </div>
           `;
           col.appendChild(card);
+          const editSourceSel = document.getElementById(`edit-source-${c.id}`);
+          const editReferredByWrap = document.getElementById(`edit-referredByWrap-${c.id}`);
+          editSourceSel.addEventListener('change', () => {
+            editReferredByWrap.style.display = editSourceSel.value === 'Referral' ? '' : 'none';
+          });
           return;
         }
 
@@ -692,7 +734,7 @@ function buildFunnel(){
 
         card.innerHTML = `
           <div class="card-name">${escapeHtml(c.name)}</div>
-          <div class="card-source">${escapeHtml(c.source)}</div>
+          <div class="card-source">${escapeHtml(c.source)}${c.referredBy ? ' · ref: ' + escapeHtml(c.referredBy) : ''}</div>
           <div class="pulse-row">
             <div class="pulse-dot ${pulseClass(c)}"></div>
             <div class="pulse-text">${pulseLabel(c)}</div>
@@ -715,33 +757,66 @@ function buildFunnel(){
   return funnel;
 }
 
-function buildProspectList(){
-  const wrap = document.createElement('div');
-  wrap.className = 'prospect-list';
+function buildProspectFunnel(){
+  const funnel = document.createElement('div');
+  funnel.className = 'prospect-funnel';
 
-  if(state.prospects.length === 0){
-    wrap.innerHTML = `<div class="empty-slot">No prospects yet — add people you haven't reached out to, or who haven't paid.</div>`;
-    return wrap;
-  }
+  PROSPECT_STAGES.forEach((stageName, idx) => {
+    const col = document.createElement('div');
+    col.className = 'stage-col';
+    col.dataset.stage = idx;
+    const inStage = state.prospects.filter(p => p.stage === idx);
+    col.innerHTML = `<div class="stage-head"><span class="stage-name">${stageName}</span><span class="stage-count">${inStage.length}</span></div>`;
+    if(inStage.length === 0){
+      col.innerHTML += `<div class="empty-slot">No prospects here</div>`;
+    } else {
+      inStage.forEach(p => {
+        const isLast = idx === PROSPECT_LAST_STAGE;
+        const days = daysBetween(p.addedDate, todayStr());
+        const card = document.createElement('div');
+        card.className = 'card';
 
-  state.prospects.forEach(p => {
-    const days = daysBetween(p.addedDate, todayStr());
-    const card = document.createElement('div');
-    card.className = 'prospect-card';
-    card.innerHTML = `
-      <div class="prospect-info">
-        <div class="prospect-name">${escapeHtml(p.name)}</div>
-        <div class="prospect-meta">${escapeHtml(p.source)} · added ${days === 0 ? 'today' : days + 'd ago'}</div>
-      </div>
-      <div class="prospect-actions">
-        <button class="promote-btn" onclick="promoteProspect('${p.id}')">Promote to Client</button>
-        <button class="decline-btn" title="Remove / declined" onclick="declineProspect('${p.id}')">✕</button>
-      </div>
-    `;
-    wrap.appendChild(card);
+        let toggleRow = '';
+        if(idx === 1){
+          toggleRow = `
+          <div class="toggle-row">
+            <div class="toggle-chip ${p.discussedBotCall ? 'on' : ''}" onclick="toggleProspectStatus('${p.id}','discussedBotCall')">Call</div>
+            <div class="toggle-chip ${p.discussedBotInPerson ? 'on' : ''}" onclick="toggleProspectStatus('${p.id}','discussedBotInPerson')">In-person</div>
+          </div>`;
+        } else if(idx === 2){
+          toggleRow = `
+          <div class="toggle-row">
+            <div class="toggle-chip ${p.discussed2xCall ? 'on' : ''}" onclick="toggleProspectStatus('${p.id}','discussed2xCall')">Call</div>
+            <div class="toggle-chip ${p.discussed2xInPerson ? 'on' : ''}" onclick="toggleProspectStatus('${p.id}','discussed2xInPerson')">In-person</div>
+          </div>`;
+        } else if(idx === 3){
+          toggleRow = `
+          <div class="toggle-row">
+            <div class="toggle-chip ${p.materialProfits ? 'on' : ''}" onclick="toggleProspectStatus('${p.id}','materialProfits')">Profits</div>
+            <div class="toggle-chip ${p.materialWebsite ? 'on' : ''}" onclick="toggleProspectStatus('${p.id}','materialWebsite')">Website</div>
+          </div>`;
+        }
+
+        card.innerHTML = `
+          <div class="card-name">${escapeHtml(p.name)}</div>
+          <div class="card-source">${escapeHtml(p.source)}${p.referredBy ? ' · ref: ' + escapeHtml(p.referredBy) : ''}</div>
+          <div class="pulse-row">
+            <div class="pulse-text">added ${days === 0 ? 'today' : days + 'd ago'}</div>
+          </div>
+          ${toggleRow}
+          <div class="card-actions">
+            <button ${isLast ? 'disabled' : ''} onclick="advanceProspect('${p.id}')">${isLast ? '— ' : 'Advance →'}</button>
+            <button class="promote-btn" onclick="promoteProspect('${p.id}')">Promote</button>
+            <button class="stall-btn" title="Remove / declined" onclick="declineProspect('${p.id}')">✕</button>
+          </div>
+        `;
+        col.appendChild(card);
+      });
+    }
+    funnel.appendChild(col);
   });
 
-  return wrap;
+  return funnel;
 }
 
 function escapeHtml(s){
