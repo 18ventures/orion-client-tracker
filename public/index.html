@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Client Pipeline — Signal Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #0B0D10;
+    --panel: #14171C;
+    --panel-raised: #1A1E24;
+    --hairline: #262B33;
+    --text: #E8E6DE;
+    --text-dim: #8A8F98;
+    --text-faint: #565B63;
+    --gold: #C9A227;
+    --gold-soft: rgba(201,162,39,0.14);
+    --green: #3ECF8E;
+    --green-soft: rgba(62,207,142,0.14);
+    --rust: #C1553B;
+    --rust-soft: rgba(193,85,59,0.14);
+  }
+  *{ box-sizing: border-box; }
+  body{
+    margin:0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono{ font-family: 'IBM Plex Mono', monospace; }
+
+  header{
+    padding: 32px 28px 24px;
+    border-bottom: 1px solid var(--hairline);
+    background: linear-gradient(180deg, rgba(201,162,39,0.05), transparent);
+  }
+  .header-top{
+    display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;
+  }
+  .eyebrow{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px; letter-spacing:0.14em; text-transform:uppercase;
+    color: var(--gold); margin:0 0 6px;
+  }
+  h1{ margin:0; font-size:26px; font-weight:800; letter-spacing:-0.01em; }
+  .level-badge{
+    display:flex; align-items:center; gap:14px;
+    background: var(--panel); border:1px solid var(--hairline); border-radius:10px;
+    padding:10px 18px;
+  }
+  .level-num{ font-family:'IBM Plex Mono', monospace; font-size:22px; font-weight:700; color: var(--gold); }
+  .level-label{ font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.08em; }
+  .xp-bar-wrap{ width:120px; }
+  .xp-bar-track{ height:5px; background:var(--hairline); border-radius:3px; overflow:hidden; margin-top:4px; }
+  .xp-bar-fill{ height:100%; background: linear-gradient(90deg, var(--gold), #E8C862); border-radius:3px; transition: width 0.5s ease; }
+  .xp-text{ font-size:10px; color:var(--text-faint); margin-top:3px; font-family:'IBM Plex Mono', monospace; }
+
+  .stats-row{
+    display:grid; grid-template-columns: repeat(auto-fit, minmax(120px,1fr));
+    gap:1px; background: var(--hairline);
+    margin-top:22px; border:1px solid var(--hairline); border-radius:10px; overflow:hidden;
+  }
+  .stat{ background: var(--panel); padding:14px 16px; }
+  .stat-val{ font-family:'IBM Plex Mono', monospace; font-size:22px; font-weight:600; }
+  .stat-label{ font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.07em; margin-top:2px; }
+  .stat-val.green{ color:var(--green); }
+  .stat-val.gold{ color:var(--gold); }
+  .stat-val.rust{ color:var(--rust); }
+
+  .add-bar{
+    padding: 18px 28px; border-bottom:1px solid var(--hairline);
+    display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+    background: var(--panel);
+  }
+  .add-bar input, .add-bar select{
+    background: var(--panel-raised); border:1px solid var(--hairline); color:var(--text);
+    padding:9px 12px; border-radius:7px; font-size:13px; font-family:'Inter',sans-serif;
+    outline:none;
+  }
+  .add-bar input:focus, .add-bar select:focus{ border-color: var(--gold); }
+  .add-bar input#name{ flex:1; min-width:160px; }
+  .btn{
+    background: var(--gold); color:#14171C; border:none; padding:9px 18px;
+    border-radius:7px; font-weight:700; font-size:13px; cursor:pointer;
+    transition: transform 0.1s ease, opacity 0.15s ease;
+  }
+  .btn:hover{ opacity:0.88; }
+  .btn:active{ transform: scale(0.97); }
+  .btn-ghost{
+    background:transparent; color:var(--text-dim); border:1px solid var(--hairline);
+  }
+  .btn-ghost:hover{ color:var(--text); border-color:var(--text-faint); }
+
+  .funnel{
+    display:grid; grid-template-columns: repeat(5, minmax(210px,1fr));
+    gap:14px; padding: 22px 28px 40px; overflow-x:auto;
+  }
+  .stage-col{ min-width:220px; }
+  .stage-head{
+    display:flex; justify-content:space-between; align-items:baseline;
+    padding: 0 4px 12px; border-bottom: 2px solid var(--hairline); margin-bottom:14px;
+  }
+  .stage-name{ font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-dim); }
+  .stage-count{ font-family:'IBM Plex Mono', monospace; font-size:13px; color:var(--text-faint); }
+  .stage-col[data-stage="4"] .stage-name{ color: var(--green); }
+
+  .card{
+    background: var(--panel); border:1px solid var(--hairline); border-radius:10px;
+    padding:14px; margin-bottom:12px; position:relative;
+  }
+  .card-name{ font-weight:700; font-size:14px; margin-bottom:2px; }
+  .card-source{ font-size:11px; color:var(--text-faint); margin-bottom:10px; }
+  .pulse-row{ display:flex; align-items:center; gap:6px; margin-bottom:12px; }
+  .pulse-dot{
+    width:7px; height:7px; border-radius:50%; background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse 2s infinite;
+  }
+  .pulse-dot.stale{ background: var(--gold); box-shadow:0 0 8px var(--gold); animation:none; }
+  .pulse-dot.cold{ background: var(--rust); box-shadow:none; animation:none; opacity:0.6; }
+  @keyframes pulse{ 0%,100%{ opacity:1; } 50%{ opacity:0.35; } }
+  .pulse-text{ font-family:'IBM Plex Mono', monospace; font-size:10px; color:var(--text-faint); }
+
+  .toggle-row{ display:flex; gap:6px; margin-bottom:12px; flex-wrap:wrap; }
+  .toggle-chip{
+    flex:1; min-width:0; text-align:center;
+    font-family:'IBM Plex Mono', monospace; font-size:10px; font-weight:600;
+    padding:6px 4px; border-radius:6px; cursor:pointer; user-select:none;
+    border:1px solid var(--hairline); background:transparent; color:var(--text-faint);
+    transition: all 0.15s ease;
+  }
+  .toggle-chip.on{ background: var(--green-soft); color: var(--green); border-color: var(--green); }
+  .toggle-chip:hover{ opacity:0.85; }
+
+  .card-actions{ display:flex; gap:6px; }
+  .payment-row{ font-size:11px; color:var(--text-dim); margin-bottom:10px; font-family:'IBM Plex Mono', monospace; }
+  .payment-row.overdue{ color: var(--rust); }
+  .payment-row.no-date{ color: var(--text-faint); font-style: italic; }
+  .edit-form{ display:flex; flex-direction:column; gap:8px; }
+  .edit-form input, .edit-form select{
+    background: var(--panel-raised); border:1px solid var(--hairline); color:var(--text);
+    padding:7px 9px; border-radius:6px; font-size:12px; font-family:'Inter',sans-serif; outline:none; width:100%;
+  }
+  .edit-form input:focus, .edit-form select:focus{ border-color: var(--gold); }
+  .edit-form label{ font-size:10px; color:var(--text-faint); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:2px; display:block; }
+  .edit-form-actions{ display:flex; gap:6px; margin-top:2px; }
+  .edit-form-actions button{
+    flex:1; font-size:11px; padding:6px 8px; border-radius:6px; cursor:pointer;
+    font-family:'IBM Plex Mono', monospace; font-weight:600; border:1px solid transparent;
+  }
+  .edit-form-actions .save-btn{ background: var(--gold-soft); color: var(--gold); }
+  .edit-form-actions .cancel-btn{ background: transparent; color:var(--text-faint); border:1px solid var(--hairline); }
+  .card-actions button{
+    flex:1; font-size:11px; padding:6px 8px; border-radius:6px; cursor:pointer;
+    font-family:'IBM Plex Mono', monospace; font-weight:600;
+    background: var(--gold-soft); color: var(--gold); border:1px solid transparent;
+  }
+  .card-actions button.stall-btn{ background: transparent; color:var(--text-faint); border:1px solid var(--hairline); flex:none; width:30px; }
+  .card-actions button.stall-btn:hover{ color: var(--rust); border-color:var(--rust); }
+  .card-actions button:hover{ opacity:0.85; }
+  .card-actions button:disabled{ opacity:0.3; cursor:default; }
+
+  .empty-slot{
+    border:1px dashed var(--hairline); border-radius:10px; padding:18px 10px;
+    text-align:center; color:var(--text-faint); font-size:11px;
+  }
+
+  .badges-section{ padding: 0 28px 36px; }
+  .badges-title{ font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-dim); margin-bottom:12px; }
+  .badges-row{ display:flex; flex-wrap:wrap; gap:10px; }
+  .badge{
+    display:flex; align-items:center; gap:8px;
+    background: var(--panel); border:1px solid var(--hairline); border-radius:20px;
+    padding:7px 14px 7px 10px; font-size:12px; color:var(--text-faint);
+  }
+  .badge.earned{ border-color: var(--gold); color: var(--text); }
+  .badge-icon{ width:18px; height:18px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:10px; background:var(--hairline); }
+  .badge.earned .badge-icon{ background: var(--gold); color:#14171C; }
+
+  .confetti{ position:fixed; top:-10px; width:8px; height:14px; z-index:999; pointer-events:none; }
+
+  .sync-note{ text-align:center; padding:6px 20px 0; font-size:10px; color:var(--text-faint); font-family:'IBM Plex Mono', monospace; }
+  footer{ text-align:center; padding:20px; color:var(--text-faint); font-size:11px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-top">
+    <div>
+      <p class="eyebrow">// mirror bot · client acquisition</p>
+      <h1>Client Pipeline</h1>
+    </div>
+    <div class="level-badge">
+      <div>
+        <div class="level-label">Operator Level</div>
+        <div class="level-num" id="levelNum">1</div>
+      </div>
+      <div class="xp-bar-wrap">
+        <div class="xp-bar-track"><div class="xp-bar-fill" id="xpFill" style="width:0%"></div></div>
+        <div class="xp-text" id="xpText">0 / 100 XP</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat"><div class="stat-val" id="statTotal">0</div><div class="stat-label">In Pipeline</div></div>
+    <div class="stat"><div class="stat-val green" id="statLive">0</div><div class="stat-label">Live Clients</div></div>
+    <div class="stat"><div class="stat-val gold" id="statConv">0%</div><div class="stat-label">Conversion</div></div>
+    <div class="stat"><div class="stat-val rust" id="statStalled">0</div><div class="stat-label">Stalled</div></div>
+  </div>
+</header>
+
+<div class="add-bar">
+  <input id="name" placeholder="Client name or handle" />
+  <select id="source">
+    <option value="Referral">Referral</option>
+    <option value="Telegram">Telegram inbound</option>
+    <option value="Warm intro">Warm intro</option>
+    <option value="Cold outreach">Cold outreach</option>
+    <option value="Family">Family</option>
+    <option value="Friend">Friend</option>
+    <option value="Social event">Social event</option>
+    <option value="Business event">Business event</option>
+    <option value="Other">Other</option>
+  </select>
+  <input id="datePaid" type="date" title="Date paid (optional, can add later)" />
+  <button class="btn" onclick="addClient()">+ Add to pipeline</button>
+</div>
+
+<div class="funnel" id="funnel"></div>
+
+<div class="badges-section">
+  <div class="badges-title">Milestones</div>
+  <div class="badges-row" id="badgesRow"></div>
+</div>
+
+<div class="sync-note" id="syncNote">synced</div>
+<footer>Client Pipeline CRM — hosted on Railway</footer>
+
+<script>
+const STAGES = ["Contacted", "Telegram Integration", "Wallet Ready", "Exchange", "Live"];
+const STAGE_XP = [5, 10, 15, 20, 50];
+const LAST_STAGE = STAGES.length - 1;
+const WALLET_STAGE = 2;
+const EXCHANGE_STAGE = 3;
+const BADGES = [
+  { id:'first_contact', label:'First Contact', check: s => s.clients.length >= 1 },
+  { id:'first_live',    label:'First Client Live', check: s => s.clients.filter(c=>c.stage===LAST_STAGE).length >= 1 },
+  { id:'three_live',    label:'3 Clients Live', check: s => s.clients.filter(c=>c.stage===LAST_STAGE).length >= 3 },
+  { id:'five_live',     label:'5 Clients Live', check: s => s.clients.filter(c=>c.stage===LAST_STAGE).length >= 5 },
+  { id:'ten_pipeline',  label:'10 In Pipeline', check: s => s.clients.length >= 10 },
+];
+
+let state = { clients: [], xp: 0, earnedBadges: [] };
+
+// Optional: if you set PIPELINE_PASSWORD in Railway, put the same value here
+// so write requests authenticate. Leave blank if you didn't set one.
+const PIPELINE_KEY = '';
+
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+function daysBetween(a,b){ return Math.floor((new Date(b) - new Date(a)) / 86400000); }
+
+async function loadState(){
+  const note = document.getElementById('syncNote');
+  try{
+    const res = await fetch('/api/state');
+    if(res.ok){ state = await res.json(); }
+    note.textContent = 'synced';
+  }catch(e){
+    console.log('No existing state or fetch failed, starting fresh', e);
+    note.textContent = 'offline — changes not saved';
+  }
+  render();
+}
+
+async function saveState(){
+  const note = document.getElementById('syncNote');
+  try{
+    const res = await fetch('/api/state', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(PIPELINE_KEY ? { 'x-pipeline-key': PIPELINE_KEY } : {})
+      },
+      body: JSON.stringify(state)
+    });
+    note.textContent = res.ok ? 'synced' : 'save failed — check server';
+  }catch(e){
+    console.error('Save failed', e);
+    note.textContent = 'offline — changes not saved';
+  }
+}
+
+function addXP(amount){
+  state.xp += amount;
+}
+
+function levelFromXP(xp){
+  let level = 1, needed = 100, cum = 0;
+  while(xp >= cum + needed){
+    cum += needed;
+    level++;
+    needed = Math.round(needed * 1.35);
+  }
+  return { level, cum, needed, progress: xp - cum };
+}
+
+function addClient(){
+  const nameInput = document.getElementById('name');
+  const name = nameInput.value.trim();
+  if(!name) return;
+  const source = document.getElementById('source').value;
+  const datePaidInput = document.getElementById('datePaid');
+  const datePaid = datePaidInput.value || null;
+  state.clients.push({
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2,6),
+    name, source, stage: 0,
+    lastMove: todayStr(),
+    stalled: false,
+    metamask: false,
+    rabby: false,
+    agentApproved: false,
+    datePaid
+  });
+  addXP(STAGE_XP[0]);
+  nameInput.value = '';
+  datePaidInput.value = '';
+  checkBadges();
+  saveState();
+  render();
+}
+
+function advanceClient(id){
+  const c = state.clients.find(x => x.id === id);
+  if(!c || c.stage >= STAGES.length - 1) return;
+  c.stage += 1;
+  c.lastMove = todayStr();
+  c.stalled = false;
+  addXP(STAGE_XP[c.stage]);
+  if(c.stage === LAST_STAGE){ launchConfetti(); }
+  checkBadges();
+  saveState();
+  render();
+}
+
+function addMonthsDate(d, n){ const nd = new Date(d); nd.setMonth(nd.getMonth()+n); return nd; }
+
+function nextRenewalDate(datePaidStr){
+  let d = new Date(datePaidStr + 'T00:00:00');
+  const now = new Date(todayStr() + 'T00:00:00');
+  while(d <= now){ d = addMonthsDate(d, 1); }
+  return d.toISOString().slice(0,10);
+}
+
+let editingId = null;
+
+function startEdit(id){
+  editingId = id;
+  render();
+}
+
+function cancelEdit(){
+  editingId = null;
+  render();
+}
+
+function saveEdit(id){
+  const c = state.clients.find(x => x.id === id);
+  if(!c) return;
+  const name = document.getElementById(`edit-name-${id}`).value.trim();
+  const source = document.getElementById(`edit-source-${id}`).value;
+  const datePaid = document.getElementById(`edit-datePaid-${id}`).value || null;
+  if(name) c.name = name;
+  c.source = source;
+  c.datePaid = datePaid;
+  editingId = null;
+  saveState();
+  render();
+}
+
+function toggleStall(id){
+  const c = state.clients.find(x => x.id === id);
+  if(!c) return;
+  c.stalled = !c.stalled;
+  saveState();
+  render();
+}
+
+function toggleStatus(id, field){
+  const c = state.clients.find(x => x.id === id);
+  if(!c) return;
+  c[field] = !c[field];
+  saveState();
+  render();
+}
+
+function removeClient(id){
+  state.clients = state.clients.filter(x => x.id !== id);
+  saveState();
+  render();
+}
+
+function checkBadges(){
+  BADGES.forEach(b => {
+    if(!state.earnedBadges.includes(b.id) && b.check(state)){
+      state.earnedBadges.push(b.id);
+    }
+  });
+}
+
+function pulseClass(c){
+  if(c.stalled) return 'cold';
+  const days = daysBetween(c.lastMove, todayStr());
+  if(days >= 5) return 'stale';
+  return '';
+}
+function pulseLabel(c){
+  if(c.stalled) return 'Marked stalled';
+  const days = daysBetween(c.lastMove, todayStr());
+  if(days === 0) return 'Moved today';
+  if(days === 1) return '1 day since move';
+  return days + ' days since move';
+}
+
+function render(){
+  const funnel = document.getElementById('funnel');
+  funnel.innerHTML = '';
+  STAGES.forEach((stageName, idx) => {
+    const col = document.createElement('div');
+    col.className = 'stage-col';
+    col.dataset.stage = idx;
+    const inStage = state.clients.filter(c => c.stage === idx);
+    col.innerHTML = `<div class="stage-head"><span class="stage-name">${stageName}</span><span class="stage-count">${inStage.length}</span></div>`;
+    if(inStage.length === 0){
+      col.innerHTML += `<div class="empty-slot">No clients here</div>`;
+    } else {
+      inStage.forEach(c => {
+        const isLast = idx === LAST_STAGE;
+        const card = document.createElement('div');
+        card.className = 'card';
+
+        if(editingId === c.id){
+          const sourceOptions = ["Referral","Telegram","Warm intro","Cold outreach","Family","Friend","Social event","Business event","Other"]
+            .map(s => `<option value="${s}" ${c.source===s?'selected':''}>${s}</option>`).join('');
+          card.innerHTML = `
+            <div class="edit-form">
+              <div>
+                <label>Name</label>
+                <input id="edit-name-${c.id}" value="${escapeHtml(c.name)}" />
+              </div>
+              <div>
+                <label>Source</label>
+                <select id="edit-source-${c.id}">${sourceOptions}</select>
+              </div>
+              <div>
+                <label>Date paid</label>
+                <input id="edit-datePaid-${c.id}" type="date" value="${c.datePaid || ''}" />
+              </div>
+              <div class="edit-form-actions">
+                <button class="save-btn" onclick="saveEdit('${c.id}')">Save</button>
+                <button class="cancel-btn" onclick="cancelEdit()">Cancel</button>
+              </div>
+            </div>
+          `;
+          col.appendChild(card);
+          return;
+        }
+
+        let toggleRow = '';
+        if(idx === WALLET_STAGE){
+          toggleRow = `
+          <div class="toggle-row">
+            <div class="toggle-chip ${c.metamask ? 'on' : ''}" onclick="toggleStatus('${c.id}','metamask')">Metamask</div>
+            <div class="toggle-chip ${c.rabby ? 'on' : ''}" onclick="toggleStatus('${c.id}','rabby')">Rabby</div>
+          </div>`;
+        } else if(idx === EXCHANGE_STAGE){
+          toggleRow = `
+          <div class="toggle-row">
+            <div class="toggle-chip ${c.agentApproved ? 'on' : ''}" onclick="toggleStatus('${c.id}','agentApproved')">Agent Approved</div>
+          </div>`;
+        }
+
+        let paymentRow = `<div class="payment-row no-date">No payment date set</div>`;
+        if(c.datePaid){
+          const memberDays = daysBetween(c.datePaid, todayStr());
+          const renewal = nextRenewalDate(c.datePaid);
+          const daysToRenewal = daysBetween(todayStr(), renewal);
+          const overdue = daysToRenewal <= 3;
+          paymentRow = `<div class="payment-row ${overdue ? 'overdue' : ''}">Member ${memberDays}d · Renews ${renewal} (${daysToRenewal}d)</div>`;
+        }
+
+        card.innerHTML = `
+          <div class="card-name">${escapeHtml(c.name)}</div>
+          <div class="card-source">${escapeHtml(c.source)}</div>
+          <div class="pulse-row">
+            <div class="pulse-dot ${pulseClass(c)}"></div>
+            <div class="pulse-text">${pulseLabel(c)}</div>
+          </div>
+          ${paymentRow}
+          ${toggleRow}
+          <div class="card-actions">
+            <button ${isLast ? 'disabled' : ''} onclick="advanceClient('${c.id}')">${isLast ? '✓ Live' : 'Advance →'}</button>
+            <button class="stall-btn" title="Edit" onclick="startEdit('${c.id}')">✎</button>
+            <button class="stall-btn" title="Mark stalled / reactivate" onclick="toggleStall('${c.id}')">${c.stalled ? '↺' : '⏸'}</button>
+            <button class="stall-btn" title="Remove" onclick="removeClient('${c.id}')">✕</button>
+          </div>
+        `;
+        col.appendChild(card);
+      });
+    }
+    funnel.appendChild(col);
+  });
+
+  const total = state.clients.length;
+  const live = state.clients.filter(c => c.stage === LAST_STAGE).length;
+  const stalled = state.clients.filter(c => c.stalled).length;
+  const conv = total > 0 ? Math.round((live/total)*100) : 0;
+  document.getElementById('statTotal').textContent = total;
+  document.getElementById('statLive').textContent = live;
+  document.getElementById('statConv').textContent = conv + '%';
+  document.getElementById('statStalled').textContent = stalled;
+
+  const { level, needed, progress } = levelFromXP(state.xp);
+  document.getElementById('levelNum').textContent = level;
+  document.getElementById('xpFill').style.width = Math.min(100, (progress/needed)*100) + '%';
+  document.getElementById('xpText').textContent = `${progress} / ${needed} XP`;
+
+  const badgesRow = document.getElementById('badgesRow');
+  badgesRow.innerHTML = '';
+  BADGES.forEach(b => {
+    const earned = state.earnedBadges.includes(b.id);
+    const el = document.createElement('div');
+    el.className = 'badge' + (earned ? ' earned' : '');
+    el.innerHTML = `<div class="badge-icon">${earned ? '✓' : '·'}</div>${b.label}`;
+    badgesRow.appendChild(el);
+  });
+}
+
+function escapeHtml(s){
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+function launchConfetti(){
+  const colors = ['#C9A227', '#3ECF8E', '#E8C862', '#E8E6DE'];
+  for(let i=0; i<60; i++){
+    const el = document.createElement('div');
+    el.className = 'confetti';
+    el.style.left = Math.random()*100 + 'vw';
+    el.style.background = colors[Math.floor(Math.random()*colors.length)];
+    el.style.transform = `rotate(${Math.random()*360}deg)`;
+    document.body.appendChild(el);
+    const duration = 1800 + Math.random()*1200;
+    el.animate([
+      { transform: `translateY(0) rotate(0deg)`, opacity:1 },
+      { transform: `translateY(100vh) rotate(${360+Math.random()*360}deg)`, opacity:0.2 }
+    ], { duration, easing:'ease-in' });
+    setTimeout(() => el.remove(), duration);
+  }
+}
+
+document.getElementById('name').addEventListener('keydown', e => {
+  if(e.key === 'Enter') addClient();
+});
+
+loadState();
+</script>
+</body>
+</html>
