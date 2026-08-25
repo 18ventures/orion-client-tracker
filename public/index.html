@@ -401,6 +401,15 @@ function advanceClient(id){
   render();
 }
 
+function retreatClient(id){
+  const c = state.clients.find(x => x.id === id);
+  if(!c || c.stage <= 0) return;
+  c.stage -= 1;
+  c.lastMove = todayStr();
+  saveState();
+  render();
+}
+
 function addMonthsDate(d, n){ const nd = new Date(d); nd.setMonth(nd.getMonth()+n); return nd; }
 
 function nextRenewalDate(datePaidStr){
@@ -488,6 +497,14 @@ function advanceProspect(id){
   if(!p || p.stage >= PROSPECT_LAST_STAGE) return;
   p.stage += 1;
   addXP(PROSPECT_XP[p.stage]);
+  saveState();
+  render();
+}
+
+function retreatProspect(id){
+  const p = state.prospects.find(x => x.id === id);
+  if(!p || p.stage <= 0) return;
+  p.stage -= 1;
   saveState();
   render();
 }
@@ -752,6 +769,7 @@ function buildFunnel(){
           ${paymentRow}
           ${toggleRow}
           <div class="card-actions">
+            <button class="stall-btn" title="Move back a stage" ${idx === 0 ? 'disabled' : ''} onclick="retreatClient('${c.id}')">←</button>
             <button ${isLast ? 'disabled' : ''} onclick="advanceClient('${c.id}')">${isLast ? '✓ Live' : 'Advance →'}</button>
             <button class="stall-btn" title="Edit" onclick="startEdit('${c.id}')">✎</button>
             <button class="stall-btn" title="Mark stalled / reactivate" onclick="toggleStall('${c.id}')">${c.stalled ? '↺' : '⏸'}</button>
@@ -815,6 +833,7 @@ function buildProspectFunnel(){
           </div>
           ${toggleRow}
           <div class="card-actions">
+            <button class="stall-btn" title="Move back a stage" ${idx === 0 ? 'disabled' : ''} onclick="retreatProspect('${p.id}')">←</button>
             <button ${isLast ? 'disabled' : ''} onclick="advanceProspect('${p.id}')">${isLast ? '— ' : 'Advance →'}</button>
             <button class="promote-btn" onclick="promoteProspect('${p.id}')">Promote</button>
             <button class="stall-btn" title="Remove / declined" onclick="declineProspect('${p.id}')">✕</button>
