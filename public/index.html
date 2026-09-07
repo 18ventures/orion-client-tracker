@@ -107,10 +107,10 @@
   .btn-ghost:hover{ color:var(--text); border-color:var(--text-faint); }
 
   .funnel{
-    display:grid; grid-template-columns: repeat(5, minmax(210px,1fr));
+    display:grid; grid-template-columns: repeat(5, minmax(200px,1fr));
     gap:14px; padding: 22px 28px 40px; overflow-x:auto;
   }
-  .stage-col{ min-width:220px; }
+  .stage-col{ min-width:200px; }
   .stage-head{
     display:flex; justify-content:space-between; align-items:baseline;
     padding: 0 4px 12px; border-bottom: 2px solid var(--hairline); margin-bottom:14px;
@@ -187,6 +187,11 @@
     gap:14px; padding: 22px 28px 40px; overflow-x:auto;
   }
 
+  .live-clients-grid{
+    display:grid; grid-template-columns: repeat(auto-fill, minmax(260px,1fr));
+    gap:14px; padding: 22px 28px 40px;
+  }
+
   .badges-section{ padding: 0 28px 36px; }
   .badges-title{ font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-dim); margin-bottom:12px; }
   .badges-row{ display:flex; flex-wrap:wrap; gap:10px; }
@@ -226,6 +231,7 @@
   </div>
 
   <div class="tabs">
+    <div class="tab-btn" id="tab-live" onclick="switchTab('live')">Live Clients</div>
     <div class="tab-btn" id="tab-pipeline" onclick="switchTab('pipeline')">Pipeline</div>
     <div class="tab-btn" id="tab-prospecting" onclick="switchTab('prospecting')">Prospecting</div>
   </div>
@@ -246,13 +252,15 @@
 <footer>Client Pipeline CRM — hosted on Railway</footer>
 
 <script>
-const STAGES = ["Contacted", "Telegram Integration", "Wallet Ready", "Exchange", "Live"];
-const STAGE_XP = [5, 10, 15, 20, 50];
+const STAGES = ["Contacted", "Wallet Created", "Wallet Funded", "Exchange Account Live", "Agent Approved"];
+const STAGE_XP = [5, 10, 15, 20, 25];
+const GRADUATION_XP = 50;
 const MONTHLY_FEE_GBP = 60;
 const LAST_STAGE = STAGES.length - 1;
-const TELEGRAM_STAGE = 1;
-const WALLET_STAGE = 2;
+const WALLET_STAGE = 1;
+const FUNDED_STAGE = 2;
 const EXCHANGE_STAGE = 3;
+const AGENT_APPROVED_STAGE = 4;
 const ASSUMED_CONVERSION_RATE = 0.15; // assumed 15% of prospects convert every 30 days
 const SOURCES = ["Referral","Telegram","Warm intro","Cold outreach","Family","Friend","Social event","Business event","Other"];
 const PROSPECT_STAGES = ["Haven't Contacted", "Discussed Bot", "Discussed 2x", "Showed Material"];
@@ -261,22 +269,25 @@ const PROSPECT_XP = [2, 5, 8, 12];
 
 const BADGES = [
   { id:'first_contact', label:'First Contact', check: s => s.clients.length >= 1 },
-  { id:'first_live',    label:'First Client Live', check: s => s.clients.filter(c=>c.stage===LAST_STAGE).length >= 1 },
-  { id:'three_live',    label:'3 Clients Live', check: s => s.clients.filter(c=>c.stage===LAST_STAGE).length >= 3 },
-  { id:'five_live',     label:'5 Clients Live', check: s => s.clients.filter(c=>c.stage===LAST_STAGE).length >= 5 },
+  { id:'first_live',    label:'First Client Live', check: s => s.liveClients.length >= 1 },
+  { id:'three_live',    label:'3 Clients Live', check: s => s.liveClients.length >= 3 },
+  { id:'five_live',     label:'5 Clients Live', check: s => s.liveClients.length >= 5 },
   { id:'ten_pipeline',  label:'10 In Pipeline', check: s => s.clients.length >= 10 },
 ];
 
 let state = {
   clients: [],
+  liveClients: [],
   prospects: [],
   prospectHistory: { added: 0, converted: 0, declined: 0 },
   xp: 0,
   earnedBadges: [],
-  nextClientNumber: 1
+  nextClientNumber: 1,
+  telegramStageMigrated: false,
+  walletExchangeStagesMigrated: false
 };
 
-let activeTab = 'pipeline';
+let activeTab = 'live';
 let editingId = null;
 
 // Optional: if you set PIPELINE_PASSWORD in Railway, put the same value here
@@ -294,13 +305,16 @@ async function loadState(){
     if(res.ok){
       const loaded = await res.json();
       state = Object.assign({
-        clients: [], prospects: [],
+        clients: [], liveClients: [], prospects: [],
         prospectHistory: { added: 0, converted: 0, declined: 0 },
         xp: 0, earnedBadges: []
       }, loaded);
+      if(!state.liveClients) state.liveClients = [];
       if(!state.prospects) state.prospects = [];
       if(!state.prospectHistory) state.prospectHistory = { added: 0, converted: 0, declined: 0 };
       if(!state.nextClientNumber) state.nextClientNumber = 1;
+      if(typeof state.telegramStageMigrated !== 'boolean') state.telegramStageMigrated = false;
+      if(typeof state.walletExchangeStagesMigrated !== 'boolean') state.walletExchangeStagesMigrated = false;
       // Migrate prospects added before the column/stage system existed
       state.prospects = state.prospects.map(p => Object.assign({
         stage: 0,
@@ -326,8 +340,68 @@ async function loadState(){
         dateFunded: null,
         dashboardTokenId: null,
         dexWalletAddress: null,
-        hasPrivateKey: false
+        hasPrivateKey: false,
+        commandsFunctioning: false,
+        testTradesSuccessful: false,
+        accountFullyFunded: false
       }, c));
+      state.liveClients = state.liveClients.map(c => Object.assign({
+        initialBalance: null,
+        dateFunded: null,
+        dashboardTokenId: null,
+        dexWalletAddress: null,
+        hasPrivateKey: false,
+        commandsFunctioning: false,
+        testTradesSuccessful: false,
+        accountFullyFunded: false
+      }, c));
+      // Migrate clients that were at the old "Live" stage (hardcoded index 4,
+      // from before Live became its own tab) into the new liveClients array.
+      // This threshold is fixed on purpose — it must NOT track STAGES.length,
+      // since STAGES has changed shape since (and may again).
+      const OLD_LIVE_STAGE_INDEX = 4;
+      const stillInPipeline = [];
+      state.clients.forEach(c => {
+        if(c.stage >= OLD_LIVE_STAGE_INDEX){
+          c.stage = undefined;
+          delete c.lastMove;
+          state.liveClients.push(c);
+        } else {
+          stillInPipeline.push(c);
+        }
+      });
+      state.clients = stillInPipeline;
+      // One-time migration for removing the Telegram Integration stage.
+      // Old numbering: 0 Contacted, 1 Telegram Integration, 2 Wallet Ready, 3 Exchange.
+      // New numbering: 0 Contacted, 1 Wallet Ready, 2 Exchange.
+      if(!state.telegramStageMigrated){
+        state.clients.forEach(c => {
+          if(typeof c.stage === 'number'){
+            if(c.stage === 0){ /* Contacted stays 0 */ }
+            else if(c.stage <= 2){ c.stage = 1; } // old Telegram(1) or Wallet(2) -> Wallet(1)
+            else if(c.stage === 3){ c.stage = 2; } // old Exchange(3) -> Exchange(2)
+          }
+        });
+        state.telegramStageMigrated = true;
+      }
+      // One-time migration for splitting Wallet Ready -> Wallet Created + Wallet
+      // Funded, and Exchange -> Exchange Account Live + Agent Approved.
+      // Old numbering: 0 Contacted, 1 Wallet Ready, 2 Exchange.
+      // New numbering: 0 Contacted, 1 Wallet Created, 2 Wallet Funded,
+      //                3 Exchange Account Live, 4 Agent Approved.
+      // Nobody auto-qualifies for the two new checkpoints (Wallet Funded,
+      // Agent Approved) from old data — clients land at the closest
+      // equivalent stage and can be advanced manually from there.
+      if(!state.walletExchangeStagesMigrated){
+        state.clients.forEach(c => {
+          if(typeof c.stage === 'number'){
+            if(c.stage === 0){ /* Contacted stays 0 */ }
+            else if(c.stage === 1){ c.stage = 1; } // old Wallet Ready -> Wallet Created
+            else if(c.stage === 2){ c.stage = 3; } // old Exchange -> Exchange Account Live
+          }
+        });
+        state.walletExchangeStagesMigrated = true;
+      }
     }
     note.textContent = 'synced';
   }catch(e){
@@ -389,11 +463,8 @@ function addClient(){
     name, source, referredBy, stage: 0,
     lastMove: todayStr(),
     stalled: false,
-    tokenIdCaptured: false,
-    commandsLive: false,
     metamask: false,
     rabby: false,
-    agentApproved: false,
     hyperliquid: false,
     lighter: false,
     cex: false,
@@ -423,7 +494,6 @@ function advanceClient(id){
   c.lastMove = todayStr();
   c.stalled = false;
   addXP(STAGE_XP[c.stage]);
-  if(c.stage === LAST_STAGE){ launchConfetti(); }
   checkBadges();
   saveState();
   render();
@@ -438,6 +508,38 @@ function retreatClient(id){
   render();
 }
 
+function graduateClient(id){
+  const c = state.clients.find(x => x.id === id);
+  if(!c) return;
+  state.clients = state.clients.filter(x => x.id !== id);
+  delete c.stage;
+  delete c.lastMove;
+  c.stalled = false;
+  state.liveClients.push(c);
+  addXP(GRADUATION_XP);
+  launchConfetti();
+  checkBadges();
+  saveState();
+  render();
+}
+
+function retreatToExchange(id){
+  const c = state.liveClients.find(x => x.id === id);
+  if(!c) return;
+  state.liveClients = state.liveClients.filter(x => x.id !== id);
+  c.stage = EXCHANGE_STAGE;
+  c.lastMove = todayStr();
+  state.clients.push(c);
+  saveState();
+  render();
+}
+
+function removeLiveClient(id){
+  state.liveClients = state.liveClients.filter(x => x.id !== id);
+  saveState();
+  render();
+}
+
 function addMonthsDate(d, n){ const nd = new Date(d); nd.setMonth(nd.getMonth()+n); return nd; }
 
 function nextRenewalDate(datePaidStr){
@@ -445,6 +547,10 @@ function nextRenewalDate(datePaidStr){
   const now = new Date(todayStr() + 'T00:00:00');
   while(d <= now){ d = addMonthsDate(d, 1); }
   return d.toISOString().slice(0,10);
+}
+
+function findClientAnywhere(id){
+  return state.clients.find(x => x.id === id) || state.liveClients.find(x => x.id === id);
 }
 
 function startEdit(id){
@@ -458,7 +564,7 @@ function cancelEdit(){
 }
 
 function saveEdit(id){
-  const c = state.clients.find(x => x.id === id);
+  const c = findClientAnywhere(id);
   if(!c) return;
   const name = document.getElementById(`edit-name-${id}`).value.trim();
   const source = document.getElementById(`edit-source-${id}`).value;
@@ -496,7 +602,7 @@ async function setClientKey(id){
     const data = await res.json();
     if(res.ok){
       input.value = '';
-      const c = state.clients.find(x => x.id === id);
+      const c = findClientAnywhere(id);
       if(c) c.hasPrivateKey = data.hasPrivateKey;
       render();
     } else {
@@ -517,7 +623,7 @@ async function clearClientKey(id){
     });
     const data = await res.json();
     if(res.ok){
-      const c = state.clients.find(x => x.id === id);
+      const c = findClientAnywhere(id);
       if(c) c.hasPrivateKey = false;
       render();
     } else {
@@ -547,7 +653,7 @@ async function revealClientKey(id){
 }
 
 function toggleStall(id){
-  const c = state.clients.find(x => x.id === id);
+  const c = findClientAnywhere(id);
   if(!c) return;
   c.stalled = !c.stalled;
   saveState();
@@ -555,7 +661,7 @@ function toggleStall(id){
 }
 
 function toggleStatus(id, field){
-  const c = state.clients.find(x => x.id === id);
+  const c = findClientAnywhere(id);
   if(!c) return;
   c[field] = !c[field];
   saveState();
@@ -628,11 +734,8 @@ function promoteProspect(id){
     name: p.name, source: p.source, referredBy: p.referredBy || null, stage: 0,
     lastMove: todayStr(),
     stalled: false,
-    tokenIdCaptured: false,
-    commandsLive: false,
     metamask: false,
     rabby: false,
-    agentApproved: false,
     hyperliquid: false,
     lighter: false,
     cex: false,
@@ -683,15 +786,19 @@ function pulseLabel(c){
 }
 
 function render(){
+  document.getElementById('tab-live').classList.toggle('active', activeTab === 'live');
   document.getElementById('tab-pipeline').classList.toggle('active', activeTab === 'pipeline');
   document.getElementById('tab-prospecting').classList.toggle('active', activeTab === 'prospecting');
-  document.getElementById('pageTitle').textContent = activeTab === 'pipeline' ? 'Client Pipeline' : 'Prospecting';
+  const titles = { live: 'Live Clients', pipeline: 'Client Pipeline', prospecting: 'Prospecting' };
+  document.getElementById('pageTitle').textContent = titles[activeTab];
 
   renderStatsAndAddBar();
 
   const mainContent = document.getElementById('mainContent');
   mainContent.innerHTML = '';
-  if(activeTab === 'pipeline'){
+  if(activeTab === 'live'){
+    mainContent.appendChild(buildLiveClients());
+  } else if(activeTab === 'pipeline'){
     mainContent.appendChild(buildFunnel());
   } else {
     mainContent.appendChild(buildProspectFunnel());
@@ -717,22 +824,27 @@ function renderStatsAndAddBar(){
   const statsRow = document.getElementById('statsRow');
   const addBar = document.getElementById('addBar');
 
-  if(activeTab === 'pipeline'){
-    const total = state.clients.length;
-    const live = state.clients.filter(c => c.stage === LAST_STAGE).length;
-    const payingCount = state.clients.filter(c => c.datePaid).length;
-    const monthlyRevenue = payingCount * MONTHLY_FEE_GBP;
-    const dueSoonCount = state.clients.filter(c => {
-      if(!c.datePaid) return false;
+  if(activeTab === 'live'){
+    const liveCount = state.liveClients.length;
+    const allPaying = [...state.clients, ...state.liveClients].filter(c => c.datePaid);
+    const monthlyRevenue = allPaying.length * MONTHLY_FEE_GBP;
+    const dueSoonCount = allPaying.filter(c => {
       const renewal = nextRenewalDate(c.datePaid);
       return daysBetween(todayStr(), renewal) <= 5;
     }).length;
 
     statsRow.innerHTML = `
-      <div class="stat"><div class="stat-val" id="statTotal">${total}</div><div class="stat-label">In Pipeline</div></div>
-      <div class="stat"><div class="stat-val green" id="statLive">${live}</div><div class="stat-label">Live Clients</div></div>
+      <div class="stat"><div class="stat-val green" id="statLiveCount">${liveCount}</div><div class="stat-label">Live Clients</div></div>
       <div class="stat"><div class="stat-val gold" id="statRevenue">£${monthlyRevenue.toLocaleString()}</div><div class="stat-label">Monthly Revenue</div></div>
       <div class="stat"><div class="stat-val ${dueSoonCount > 0 ? 'gold' : ''}" id="statDueSoon">${dueSoonCount}</div><div class="stat-label">Renewals Due Soon</div></div>
+    `;
+    addBar.innerHTML = `<div style="color:var(--text-faint); font-size:12px; font-family:'IBM Plex Mono', monospace;">Clients land here automatically once they graduate from the Exchange stage in Pipeline.</div>`;
+
+  } else if(activeTab === 'pipeline'){
+    const total = state.clients.length;
+
+    statsRow.innerHTML = `
+      <div class="stat"><div class="stat-val" id="statTotal">${total}</div><div class="stat-label">In Pipeline</div></div>
     `;
 
     const sourceOptions = SOURCES.map(s => `<option value="${s}">${s}</option>`).join('');
@@ -853,8 +965,8 @@ function buildFunnel(){
             </div>
           `;
           col.appendChild(card);
-          const editSourceSel = document.getElementById(`edit-source-${c.id}`);
-          const editReferredByWrap = document.getElementById(`edit-referredByWrap-${c.id}`);
+          const editSourceSel = card.querySelector(`[id="edit-source-${c.id}"]`);
+          const editReferredByWrap = card.querySelector(`[id="edit-referredByWrap-${c.id}"]`);
           editSourceSel.addEventListener('change', () => {
             editReferredByWrap.style.display = editSourceSel.value === 'Referral' ? '' : 'none';
           });
@@ -862,13 +974,7 @@ function buildFunnel(){
         }
 
         let toggleRow = '';
-        if(idx === TELEGRAM_STAGE){
-          toggleRow = `
-          <div class="toggle-row">
-            <div class="toggle-chip ${c.tokenIdCaptured ? 'on' : ''}" onclick="toggleStatus('${c.id}','tokenIdCaptured')">Token ID Captured</div>
-            <div class="toggle-chip ${c.commandsLive ? 'on' : ''}" onclick="toggleStatus('${c.id}','commandsLive')">Commands Live</div>
-          </div>`;
-        } else if(idx === WALLET_STAGE){
+        if(idx === WALLET_STAGE){
           toggleRow = `
           <div class="toggle-row">
             <div class="toggle-chip ${c.metamask ? 'on' : ''}" onclick="toggleStatus('${c.id}','metamask')">Metamask</div>
@@ -880,14 +986,6 @@ function buildFunnel(){
             <div class="toggle-chip ${c.hyperliquid ? 'on' : ''}" onclick="toggleStatus('${c.id}','hyperliquid')">Hyperliquid</div>
             <div class="toggle-chip ${c.lighter ? 'on' : ''}" onclick="toggleStatus('${c.id}','lighter')">Lighter</div>
             <div class="toggle-chip ${c.cex ? 'on' : ''}" onclick="toggleStatus('${c.id}','cex')">CEX</div>
-            <div class="toggle-chip ${c.agentApproved ? 'on' : ''}" onclick="toggleStatus('${c.id}','agentApproved')">Agent Approved</div>
-          </div>`;
-        } else if(idx === LAST_STAGE){
-          toggleRow = `
-          <div class="toggle-row">
-            <div class="toggle-chip ${c.commandsFunctioning ? 'on' : ''}" onclick="toggleStatus('${c.id}','commandsFunctioning')">Commands Functioning</div>
-            <div class="toggle-chip ${c.testTradesSuccessful ? 'on' : ''}" onclick="toggleStatus('${c.id}','testTradesSuccessful')">Test Trades Successful</div>
-            <div class="toggle-chip ${c.accountFullyFunded ? 'on' : ''}" onclick="toggleStatus('${c.id}','accountFullyFunded')">Account Fully Funded</div>
           </div>`;
         }
 
@@ -922,7 +1020,7 @@ function buildFunnel(){
           ${toggleRow}
           <div class="card-actions">
             <button class="stall-btn" title="Move back a stage" ${idx === 0 ? 'disabled' : ''} onclick="retreatClient('${c.id}')">←</button>
-            <button ${isLast ? 'disabled' : ''} onclick="advanceClient('${c.id}')">${isLast ? '✓ Live' : 'Advance →'}</button>
+            <button ${isLast ? '' : ''} onclick="${isLast ? `graduateClient('${c.id}')` : `advanceClient('${c.id}')`}" ${isLast ? 'class="promote-btn"' : ''}>${isLast ? '🎉 Go Live' : 'Advance →'}</button>
             <button class="stall-btn" title="Edit" onclick="startEdit('${c.id}')">✎</button>
             <button class="stall-btn" title="Mark stalled / reactivate" onclick="toggleStall('${c.id}')">${c.stalled ? '↺' : '⏸'}</button>
             <button class="stall-btn" title="Remove" onclick="removeClient('${c.id}')">✕</button>
@@ -935,6 +1033,127 @@ function buildFunnel(){
   });
 
   return funnel;
+}
+
+function buildLiveClients(){
+  const wrap = document.createElement('div');
+  wrap.className = 'live-clients-grid';
+
+  if(state.liveClients.length === 0){
+    wrap.innerHTML = `<div class="empty-slot">No live clients yet — graduate someone from the Exchange stage in Pipeline to see them here.</div>`;
+    return wrap;
+  }
+
+  state.liveClients.forEach(c => {
+    const card = document.createElement('div');
+    card.className = 'card';
+
+    if(editingId === c.id){
+      const sourceOptions = SOURCES.map(s => `<option value="${s}" ${c.source===s?'selected':''}>${s}</option>`).join('');
+      card.innerHTML = `
+        <div class="edit-form">
+          <div>
+            <label>Name</label>
+            <input id="edit-name-${c.id}" value="${escapeHtml(c.name)}" />
+          </div>
+          <div>
+            <label>Source</label>
+            <select id="edit-source-${c.id}">${sourceOptions}</select>
+          </div>
+          <div id="edit-referredByWrap-${c.id}" style="display:${c.source==='Referral' ? '' : 'none'};">
+            <label>Referred by</label>
+            <input id="edit-referredBy-${c.id}" value="${escapeHtml(c.referredBy || '')}" />
+          </div>
+          <div>
+            <label>Date paid</label>
+            <input id="edit-datePaid-${c.id}" type="date" value="${c.datePaid || ''}" />
+          </div>
+          <div>
+            <label>Initial balance ($)</label>
+            <input id="edit-initialBalance-${c.id}" type="number" step="0.01" value="${c.initialBalance != null ? c.initialBalance : ''}" placeholder="0.00" />
+          </div>
+          <div>
+            <label>Date funded</label>
+            <input id="edit-dateFunded-${c.id}" type="date" value="${c.dateFunded || ''}" />
+          </div>
+          <div>
+            <label>Dashboard token ID</label>
+            <input id="edit-dashboardTokenId-${c.id}" value="${escapeHtml(c.dashboardTokenId || '')}" placeholder="CLIENT${c.clientNumber || 'N'}_DASHBOARD_TOKEN value" />
+          </div>
+          <div>
+            <label>DEX wallet address</label>
+            <input id="edit-dexWalletAddress-${c.id}" value="${escapeHtml(c.dexWalletAddress || '')}" placeholder="0x..." />
+          </div>
+          <div>
+            <label>DEX private key (agent wallet) — ${c.hasPrivateKey ? 'configured' : 'not set'}</label>
+            <div style="display:flex; gap:6px;">
+              <input id="edit-privateKeyInput-${c.id}" type="password" placeholder="Paste to set/replace" style="flex:1;" />
+              <button type="button" class="save-btn" style="flex:none; padding:7px 10px;" onclick="setClientKey('${c.id}')">Set</button>
+            </div>
+            <div style="display:flex; gap:6px; margin-top:6px; align-items:center;">
+              <button type="button" class="cancel-btn" style="flex:none; padding:6px 10px;" ${c.hasPrivateKey ? '' : 'disabled'} onclick="revealClientKey('${c.id}')">Reveal</button>
+              <button type="button" class="cancel-btn" style="flex:none; padding:6px 10px;" ${c.hasPrivateKey ? '' : 'disabled'} onclick="clearClientKey('${c.id}')">Clear</button>
+              <span id="revealedKey-${c.id}" class="mono" style="font-size:10px; word-break:break-all; color:var(--gold);"></span>
+            </div>
+          </div>
+          <div class="edit-form-actions">
+            <button class="save-btn" onclick="saveEdit('${c.id}')">Save</button>
+            <button class="cancel-btn" onclick="cancelEdit()">Cancel</button>
+          </div>
+        </div>
+      `;
+      wrap.appendChild(card);
+      const editSourceSel = card.querySelector(`[id="edit-source-${c.id}"]`);
+      const editReferredByWrap = card.querySelector(`[id="edit-referredByWrap-${c.id}"]`);
+      editSourceSel.addEventListener('change', () => {
+        editReferredByWrap.style.display = editSourceSel.value === 'Referral' ? '' : 'none';
+      });
+      return;
+    }
+
+    let paymentRow = `<div class="payment-row no-date">No payment date set</div>`;
+    if(c.datePaid){
+      const memberDays = daysBetween(c.datePaid, todayStr());
+      const renewal = nextRenewalDate(c.datePaid);
+      const daysToRenewal = daysBetween(todayStr(), renewal);
+      const overdue = daysToRenewal <= 1;
+      const dueSoon = !overdue && daysToRenewal <= 5;
+      const rowClass = overdue ? 'overdue' : (dueSoon ? 'due-soon' : '');
+      paymentRow = `<div class="payment-row ${rowClass}">Member ${memberDays}d · Renews ${renewal} (${daysToRenewal}d)</div>`;
+    }
+
+    const accountParts = [];
+    if(c.initialBalance != null) accountParts.push(`Bal $${Number(c.initialBalance).toLocaleString()}`);
+    if(c.dateFunded) accountParts.push(`Funded ${c.dateFunded}`);
+    if(c.dexWalletAddress) accountParts.push(`Wallet ${truncateMiddle(c.dexWalletAddress)}`);
+    if(c.dashboardTokenId) accountParts.push('Token ✓');
+    if(c.hasPrivateKey) accountParts.push('🔑 Key set');
+    const accountRow = accountParts.length ? `<div class="payment-row">${accountParts.join(' · ')}</div>` : '';
+
+    const toggleRow = `
+      <div class="toggle-row">
+        <div class="toggle-chip ${c.commandsFunctioning ? 'on' : ''}" onclick="toggleStatus('${c.id}','commandsFunctioning')">Commands Functioning</div>
+        <div class="toggle-chip ${c.testTradesSuccessful ? 'on' : ''}" onclick="toggleStatus('${c.id}','testTradesSuccessful')">Test Trades Successful</div>
+        <div class="toggle-chip ${c.accountFullyFunded ? 'on' : ''}" onclick="toggleStatus('${c.id}','accountFullyFunded')">Account Fully Funded</div>
+      </div>`;
+
+    card.innerHTML = `
+      <div class="card-name">${escapeHtml(c.name)}</div>
+      <div class="card-source">${escapeHtml(c.source)} · #${pad3(c.clientNumber)}${c.referredBy ? ' · ref: ' + escapeHtml(c.referredBy) : ''}</div>
+      ${paymentRow}
+      ${accountRow}
+      ${toggleRow}
+      <div class="card-actions">
+        <button class="stall-btn" title="Move back to Exchange (undo)" onclick="retreatToExchange('${c.id}')">← Exchange</button>
+        <button class="stall-btn" title="Edit" onclick="startEdit('${c.id}')">✎</button>
+        <button class="stall-btn" title="Mark stalled / reactivate" onclick="toggleStall('${c.id}')">${c.stalled ? '↺' : '⏸'}</button>
+        <button class="stall-btn" title="Remove" onclick="removeLiveClient('${c.id}')">✕</button>
+      </div>
+    `;
+    wrap.appendChild(card);
+  });
+
+  return wrap;
 }
 
 function buildProspectFunnel(){
