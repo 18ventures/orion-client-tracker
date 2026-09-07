@@ -152,6 +152,12 @@
   .payment-row.due-soon{ color: var(--gold); background: var(--gold-soft); font-weight:600; }
   .payment-row.overdue{ color: var(--rust); background: var(--rust-soft); font-weight:700; }
   .payment-row.no-date{ color: var(--text-faint); font-style: italic; }
+  .copy-mini{
+    background: var(--panel-raised); border:1px solid var(--hairline); color:var(--text-dim);
+    border-radius:5px; padding:1px 6px; font-size:10px; cursor:pointer; margin-left:2px;
+    font-family:'IBM Plex Mono', monospace; line-height:1.6;
+  }
+  .copy-mini:hover{ color:var(--gold); border-color:var(--gold); }
   .edit-form{ display:flex; flex-direction:column; gap:8px; }
   .edit-form input, .edit-form select{
     background: var(--panel-raised); border:1px solid var(--hairline); color:var(--text);
@@ -252,15 +258,15 @@
 <footer>Client Pipeline CRM — hosted on Railway</footer>
 
 <script>
-const STAGES = ["Contacted", "Wallet Created", "Wallet Funded", "Exchange Account Live", "Agent Approved"];
-const STAGE_XP = [5, 10, 15, 20, 25];
+const STAGES = ["Contacted", "Wallet Created", "Wallet Funded", "Exchange Account Live", "Agent Wallet Needs Approval", "Agent Approved"];
+const STAGE_XP = [5, 10, 15, 20, 22, 25];
 const GRADUATION_XP = 50;
 const MONTHLY_FEE_GBP = 60;
 const LAST_STAGE = STAGES.length - 1;
 const WALLET_STAGE = 1;
 const FUNDED_STAGE = 2;
 const EXCHANGE_STAGE = 3;
-const AGENT_APPROVED_STAGE = 4;
+const AGENT_APPROVED_STAGE = 5;
 const ASSUMED_CONVERSION_RATE = 0.15; // assumed 15% of prospects convert every 30 days
 const SOURCES = ["Referral","Telegram","Warm intro","Cold outreach","Family","Friend","Social event","Business event","Other"];
 const PROSPECT_STAGES = ["Haven't Contacted", "Discussed Bot", "Discussed 2x", "Showed Material"];
@@ -293,6 +299,11 @@ let editingId = null;
 // Optional: if you set PIPELINE_PASSWORD in Railway, put the same value here
 // so write requests authenticate. Leave blank if you didn't set one.
 const PIPELINE_KEY = '2tPq7jeoLSD8QGsXvpogmqMD8-fH-XSI';
+
+// The bot's own Railway URL — used to build a client's full shareable
+// dashboard link (base + "?t=" + their token). Update this if the bot's
+// domain ever changes.
+const DASHBOARD_BASE_URL = 'https://orion-bot-production-d68d.up.railway.app';
 
 function todayStr(){ return new Date().toISOString().slice(0,10); }
 function daysBetween(a,b){ return Math.floor((new Date(b) - new Date(a)) / 86400000); }
@@ -1009,7 +1020,10 @@ function buildFunnel(){
         if(c.dexWalletAddress) accountParts.push(`Wallet ${truncateMiddle(c.dexWalletAddress)}`);
         if(c.dashboardTokenId) accountParts.push('Token ✓');
         if(c.hasPrivateKey) accountParts.push('🔑 Key set');
-        const accountRow = accountParts.length ? `<div class="payment-row">${accountParts.join(' · ')}</div>` : '';
+        const copyBtns = c.dashboardTokenId
+          ? ` <button type="button" class="copy-mini" title="Copy token" onclick="copyClientToken('${c.id}', this)">⧉</button><button type="button" class="copy-mini" title="Copy dashboard link" onclick="copyClientDashboardLink('${c.id}', this)">🔗</button>`
+          : '';
+        const accountRow = accountParts.length ? `<div class="payment-row">${accountParts.join(' · ')}${copyBtns}</div>` : '';
 
         card.innerHTML = `
           <div class="card-name">${escapeHtml(c.name)}</div>
@@ -1134,7 +1148,10 @@ function buildLiveClients(){
     if(c.dexWalletAddress) accountParts.push(`Wallet ${truncateMiddle(c.dexWalletAddress)}`);
     if(c.dashboardTokenId) accountParts.push('Token ✓');
     if(c.hasPrivateKey) accountParts.push('🔑 Key set');
-    const accountRow = accountParts.length ? `<div class="payment-row">${accountParts.join(' · ')}</div>` : '';
+    const copyBtns = c.dashboardTokenId
+      ? ` <button type="button" class="copy-mini" title="Copy token" onclick="copyClientToken('${c.id}', this)">⧉</button><button type="button" class="copy-mini" title="Copy dashboard link" onclick="copyClientDashboardLink('${c.id}', this)">🔗</button>`
+      : '';
+    const accountRow = accountParts.length ? `<div class="payment-row">${accountParts.join(' · ')}${copyBtns}</div>` : '';
 
     const toggleRow = `
       <div class="toggle-row">
@@ -1236,6 +1253,27 @@ function generateDashboardToken(id){
   const token = b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   const input = document.getElementById(`edit-dashboardTokenId-${id}`);
   if (input) input.value = token;
+}
+
+function flashCopyFeedback(btn){
+  const original = btn.textContent;
+  btn.textContent = 'Copied';
+  setTimeout(() => { btn.textContent = original; }, 1200);
+}
+
+function copyClientToken(id, btn){
+  const c = findClientAnywhere(id);
+  if (!c || !c.dashboardTokenId) return;
+  navigator.clipboard.writeText(c.dashboardTokenId);
+  if (btn) flashCopyFeedback(btn);
+}
+
+function copyClientDashboardLink(id, btn){
+  const c = findClientAnywhere(id);
+  if (!c || !c.dashboardTokenId) return;
+  const link = `${DASHBOARD_BASE_URL}/?t=${c.dashboardTokenId}`;
+  navigator.clipboard.writeText(link);
+  if (btn) flashCopyFeedback(btn);
 }
 
 function truncateMiddle(s, front, back){
