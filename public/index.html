@@ -320,6 +320,14 @@ async function loadState(){
         }
       });
       state.nextClientNumber = Math.max(nextNum, state.nextClientNumber);
+      // Migrate clients added before the account-info fields existed
+      state.clients = state.clients.map(c => Object.assign({
+        initialBalance: null,
+        dateFunded: null,
+        dashboardTokenId: null,
+        dexWalletAddress: null,
+        hasPrivateKey: false
+      }, c));
     }
     note.textContent = 'synced';
   }catch(e){
@@ -392,7 +400,12 @@ function addClient(){
     commandsFunctioning: false,
     testTradesSuccessful: false,
     accountFullyFunded: false,
-    datePaid
+    datePaid,
+    initialBalance: null,
+    dateFunded: null,
+    dashboardTokenId: null,
+    dexWalletAddress: null,
+    hasPrivateKey: false
   });
   state.nextClientNumber += 1;
   addXP(STAGE_XP[0]);
@@ -452,13 +465,85 @@ function saveEdit(id){
   const referredByEl = document.getElementById(`edit-referredBy-${id}`);
   const referredBy = source === 'Referral' ? (referredByEl.value.trim() || null) : null;
   const datePaid = document.getElementById(`edit-datePaid-${id}`).value || null;
+  const initialBalanceRaw = document.getElementById(`edit-initialBalance-${id}`).value;
+  const initialBalance = initialBalanceRaw === '' ? null : parseFloat(initialBalanceRaw);
+  const dateFunded = document.getElementById(`edit-dateFunded-${id}`).value || null;
+  const dashboardTokenId = document.getElementById(`edit-dashboardTokenId-${id}`).value.trim() || null;
+  const dexWalletAddress = document.getElementById(`edit-dexWalletAddress-${id}`).value.trim() || null;
   if(name) c.name = name;
   c.source = source;
   c.referredBy = referredBy;
   c.datePaid = datePaid;
+  c.initialBalance = initialBalance;
+  c.dateFunded = dateFunded;
+  c.dashboardTokenId = dashboardTokenId;
+  c.dexWalletAddress = dexWalletAddress;
   editingId = null;
   saveState();
   render();
+}
+
+async function setClientKey(id){
+  const input = document.getElementById(`edit-privateKeyInput-${id}`);
+  const val = input.value.trim();
+  if(!val){ alert('Enter a key first, or use Clear to remove an existing one.'); return; }
+  try{
+    const res = await fetch(`/api/clients/${id}/key`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(PIPELINE_KEY ? { 'x-pipeline-key': PIPELINE_KEY } : {}) },
+      body: JSON.stringify({ privateKey: val })
+    });
+    const data = await res.json();
+    if(res.ok){
+      input.value = '';
+      const c = state.clients.find(x => x.id === id);
+      if(c) c.hasPrivateKey = data.hasPrivateKey;
+      render();
+    } else {
+      alert('Failed to save key: ' + (data.error || 'unknown error'));
+    }
+  }catch(e){
+    alert('Request failed: ' + e.message);
+  }
+}
+
+async function clearClientKey(id){
+  if(!confirm('Remove the stored private key for this client? This cannot be undone.')) return;
+  try{
+    const res = await fetch(`/api/clients/${id}/key`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(PIPELINE_KEY ? { 'x-pipeline-key': PIPELINE_KEY } : {}) },
+      body: JSON.stringify({ privateKey: '' })
+    });
+    const data = await res.json();
+    if(res.ok){
+      const c = state.clients.find(x => x.id === id);
+      if(c) c.hasPrivateKey = false;
+      render();
+    } else {
+      alert('Failed to clear key: ' + (data.error || 'unknown error'));
+    }
+  }catch(e){
+    alert('Request failed: ' + e.message);
+  }
+}
+
+async function revealClientKey(id){
+  try{
+    const res = await fetch(`/api/clients/${id}/key/reveal`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(PIPELINE_KEY ? { 'x-pipeline-key': PIPELINE_KEY } : {}) }
+    });
+    const data = await res.json();
+    const span = document.getElementById(`revealedKey-${id}`);
+    if(res.ok && span){
+      span.textContent = data.privateKey;
+    } else {
+      alert('Failed to reveal key: ' + (data.error || 'unknown error'));
+    }
+  }catch(e){
+    alert('Request failed: ' + e.message);
+  }
 }
 
 function toggleStall(id){
@@ -554,7 +639,12 @@ function promoteProspect(id){
     commandsFunctioning: false,
     testTradesSuccessful: false,
     accountFullyFunded: false,
-    datePaid: todayStr()
+    datePaid: todayStr(),
+    initialBalance: null,
+    dateFunded: null,
+    dashboardTokenId: null,
+    dexWalletAddress: null,
+    hasPrivateKey: false
   });
   state.nextClientNumber += 1;
   addXP(STAGE_XP[0]);
@@ -728,6 +818,34 @@ function buildFunnel(){
                 <label>Date paid</label>
                 <input id="edit-datePaid-${c.id}" type="date" value="${c.datePaid || ''}" />
               </div>
+              <div>
+                <label>Initial balance ($)</label>
+                <input id="edit-initialBalance-${c.id}" type="number" step="0.01" value="${c.initialBalance != null ? c.initialBalance : ''}" placeholder="0.00" />
+              </div>
+              <div>
+                <label>Date funded</label>
+                <input id="edit-dateFunded-${c.id}" type="date" value="${c.dateFunded || ''}" />
+              </div>
+              <div>
+                <label>Dashboard token ID</label>
+                <input id="edit-dashboardTokenId-${c.id}" value="${escapeHtml(c.dashboardTokenId || '')}" placeholder="CLIENT${c.clientNumber || 'N'}_DASHBOARD_TOKEN value" />
+              </div>
+              <div>
+                <label>DEX wallet address</label>
+                <input id="edit-dexWalletAddress-${c.id}" value="${escapeHtml(c.dexWalletAddress || '')}" placeholder="0x..." />
+              </div>
+              <div>
+                <label>DEX private key (agent wallet) — ${c.hasPrivateKey ? 'configured' : 'not set'}</label>
+                <div style="display:flex; gap:6px;">
+                  <input id="edit-privateKeyInput-${c.id}" type="password" placeholder="Paste to set/replace" style="flex:1;" />
+                  <button type="button" class="save-btn" style="flex:none; padding:7px 10px;" onclick="setClientKey('${c.id}')">Set</button>
+                </div>
+                <div style="display:flex; gap:6px; margin-top:6px; align-items:center;">
+                  <button type="button" class="cancel-btn" style="flex:none; padding:6px 10px;" ${c.hasPrivateKey ? '' : 'disabled'} onclick="revealClientKey('${c.id}')">Reveal</button>
+                  <button type="button" class="cancel-btn" style="flex:none; padding:6px 10px;" ${c.hasPrivateKey ? '' : 'disabled'} onclick="clearClientKey('${c.id}')">Clear</button>
+                  <span id="revealedKey-${c.id}" class="mono" style="font-size:10px; word-break:break-all; color:var(--gold);"></span>
+                </div>
+              </div>
               <div class="edit-form-actions">
                 <button class="save-btn" onclick="saveEdit('${c.id}')">Save</button>
                 <button class="cancel-btn" onclick="cancelEdit()">Cancel</button>
@@ -784,6 +902,14 @@ function buildFunnel(){
           paymentRow = `<div class="payment-row ${rowClass}">Member ${memberDays}d · Renews ${renewal} (${daysToRenewal}d)</div>`;
         }
 
+        const accountParts = [];
+        if(c.initialBalance != null) accountParts.push(`Bal $${Number(c.initialBalance).toLocaleString()}`);
+        if(c.dateFunded) accountParts.push(`Funded ${c.dateFunded}`);
+        if(c.dexWalletAddress) accountParts.push(`Wallet ${truncateMiddle(c.dexWalletAddress)}`);
+        if(c.dashboardTokenId) accountParts.push('Token ✓');
+        if(c.hasPrivateKey) accountParts.push('🔑 Key set');
+        const accountRow = accountParts.length ? `<div class="payment-row">${accountParts.join(' · ')}</div>` : '';
+
         card.innerHTML = `
           <div class="card-name">${escapeHtml(c.name)}</div>
           <div class="card-source">${escapeHtml(c.source)} · #${pad3(c.clientNumber)}${c.referredBy ? ' · ref: ' + escapeHtml(c.referredBy) : ''}</div>
@@ -792,6 +918,7 @@ function buildFunnel(){
             <div class="pulse-text">${pulseLabel(c)}</div>
           </div>
           ${paymentRow}
+          ${accountRow}
           ${toggleRow}
           <div class="card-actions">
             <button class="stall-btn" title="Move back a stage" ${idx === 0 ? 'disabled' : ''} onclick="retreatClient('${c.id}')">←</button>
@@ -871,6 +998,12 @@ function buildProspectFunnel(){
   });
 
   return funnel;
+}
+
+function truncateMiddle(s, front, back){
+  front = front || 6; back = back || 4;
+  if(!s || s.length <= front + back + 1) return s;
+  return s.slice(0, front) + '…' + s.slice(-back);
 }
 
 function escapeHtml(s){
