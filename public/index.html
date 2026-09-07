@@ -940,7 +940,10 @@ function buildFunnel(){
               </div>
               <div>
                 <label>Dashboard token ID</label>
-                <input id="edit-dashboardTokenId-${c.id}" value="${escapeHtml(c.dashboardTokenId || '')}" placeholder="CLIENT${c.clientNumber || 'N'}_DASHBOARD_TOKEN value" />
+                <div style="display:flex; gap:6px;">
+                  <input id="edit-dashboardTokenId-${c.id}" value="${escapeHtml(c.dashboardTokenId || '')}" placeholder="CLIENT${c.clientNumber || 'N'}_DASHBOARD_TOKEN value" style="flex:1;" />
+                  <button type="button" class="save-btn" style="flex:none; padding:7px 10px;" onclick="generateDashboardToken('${c.id}')">Generate</button>
+                </div>
               </div>
               <div>
                 <label>DEX wallet address</label>
@@ -1078,7 +1081,10 @@ function buildLiveClients(){
           </div>
           <div>
             <label>Dashboard token ID</label>
-            <input id="edit-dashboardTokenId-${c.id}" value="${escapeHtml(c.dashboardTokenId || '')}" placeholder="CLIENT${c.clientNumber || 'N'}_DASHBOARD_TOKEN value" />
+            <div style="display:flex; gap:6px;">
+              <input id="edit-dashboardTokenId-${c.id}" value="${escapeHtml(c.dashboardTokenId || '')}" placeholder="CLIENT${c.clientNumber || 'N'}_DASHBOARD_TOKEN value" style="flex:1;" />
+              <button type="button" class="save-btn" style="flex:none; padding:7px 10px;" onclick="generateDashboardToken('${c.id}')">Generate</button>
+            </div>
           </div>
           <div>
             <label>DEX wallet address</label>
@@ -1217,6 +1223,19 @@ function buildProspectFunnel(){
   });
 
   return funnel;
+}
+
+function generateDashboardToken(id){
+  // Same shape as Python's secrets.token_urlsafe(24) — 24 random bytes,
+  // base64url-encoded, no padding. Generated client-side with the Web
+  // Crypto API (a real CSPRNG, not Math.random) since there's no need for
+  // a server round-trip just to generate random bytes.
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  let b64 = btoa(String.fromCharCode(...bytes));
+  const token = b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const input = document.getElementById(`edit-dashboardTokenId-${id}`);
+  if (input) input.value = token;
 }
 
 function truncateMiddle(s, front, back){
