@@ -266,6 +266,7 @@ const LAST_STAGE = STAGES.length - 1;
 const WALLET_STAGE = 1;
 const FUNDED_STAGE = 2;
 const EXCHANGE_STAGE = 3;
+const AGENT_PENDING_STAGE = 4;
 const AGENT_APPROVED_STAGE = 5;
 const ASSUMED_CONVERSION_RATE = 0.15; // assumed 15% of prospects convert every 30 days
 const SOURCES = ["Referral","Telegram","Warm intro","Cold outreach","Family","Friend","Social event","Business event","Other"];
@@ -501,6 +502,7 @@ function addClient(){
 function advanceClient(id){
   const c = state.clients.find(x => x.id === id);
   if(!c || c.stage >= STAGES.length - 1) return;
+  if(c.stage === AGENT_PENDING_STAGE && !c.agentApproved) return; // don't advance past pending approval
   c.stage += 1;
   c.lastMove = todayStr();
   c.stalled = false;
@@ -653,14 +655,23 @@ async function revealClientKey(id){
     });
     const data = await res.json();
     const span = document.getElementById(`revealedKey-${id}`);
+    const copyBtn = document.getElementById(`copyKeyBtn-${id}`);
     if(res.ok && span){
       span.textContent = data.privateKey;
+      if(copyBtn) copyBtn.disabled = false;
     } else {
       alert('Failed to reveal key: ' + (data.error || 'unknown error'));
     }
   }catch(e){
     alert('Request failed: ' + e.message);
   }
+}
+
+function copyRevealedKey(id, btn){
+  const span = document.getElementById(`revealedKey-${id}`);
+  if(!span || !span.textContent) return;
+  navigator.clipboard.writeText(span.textContent);
+  flashCopyFeedback(btn);
 }
 
 function toggleStall(id){
@@ -968,6 +979,7 @@ function buildFunnel(){
                 </div>
                 <div style="display:flex; gap:6px; margin-top:6px; align-items:center;">
                   <button type="button" class="cancel-btn" style="flex:none; padding:6px 10px;" ${c.hasPrivateKey ? '' : 'disabled'} onclick="revealClientKey('${c.id}')">Reveal</button>
+                  <button type="button" id="copyKeyBtn-${c.id}" class="copy-mini" style="padding:6px 10px;" disabled onclick="copyRevealedKey('${c.id}', this)">Copy</button>
                   <button type="button" class="cancel-btn" style="flex:none; padding:6px 10px;" ${c.hasPrivateKey ? '' : 'disabled'} onclick="clearClientKey('${c.id}')">Clear</button>
                   <span id="revealedKey-${c.id}" class="mono" style="font-size:10px; word-break:break-all; color:var(--gold);"></span>
                 </div>
@@ -1001,6 +1013,11 @@ function buildFunnel(){
             <div class="toggle-chip ${c.lighter ? 'on' : ''}" onclick="toggleStatus('${c.id}','lighter')">Lighter</div>
             <div class="toggle-chip ${c.cex ? 'on' : ''}" onclick="toggleStatus('${c.id}','cex')">CEX</div>
           </div>`;
+        } else if(idx === AGENT_PENDING_STAGE){
+          toggleRow = `
+          <div class="toggle-row">
+            <div class="toggle-chip ${c.agentApproved ? 'on' : ''}" onclick="toggleStatus('${c.id}','agentApproved')">Agent Wallet Approved</div>
+          </div>`;
         }
 
         let paymentRow = `<div class="payment-row no-date">No payment date set</div>`;
@@ -1025,6 +1042,8 @@ function buildFunnel(){
           : '';
         const accountRow = accountParts.length ? `<div class="payment-row">${accountParts.join(' · ')}${copyBtns}</div>` : '';
 
+        const advanceBlocked = (idx === AGENT_PENDING_STAGE && !c.agentApproved);
+
         card.innerHTML = `
           <div class="card-name">${escapeHtml(c.name)}</div>
           <div class="card-source">${escapeHtml(c.source)} · #${pad3(c.clientNumber)}${c.referredBy ? ' · ref: ' + escapeHtml(c.referredBy) : ''}</div>
@@ -1037,7 +1056,7 @@ function buildFunnel(){
           ${toggleRow}
           <div class="card-actions">
             <button class="stall-btn" title="Move back a stage" ${idx === 0 ? 'disabled' : ''} onclick="retreatClient('${c.id}')">←</button>
-            <button ${isLast ? '' : ''} onclick="${isLast ? `graduateClient('${c.id}')` : `advanceClient('${c.id}')`}" ${isLast ? 'class="promote-btn"' : ''}>${isLast ? '🎉 Go Live' : 'Advance →'}</button>
+            <button ${advanceBlocked ? 'disabled title="Confirm the agent wallet is approved first"' : ''} onclick="${isLast ? `graduateClient('${c.id}')` : `advanceClient('${c.id}')`}" ${isLast ? 'class="promote-btn"' : ''}>${isLast ? '🎉 Go Live' : 'Advance →'}</button>
             <button class="stall-btn" title="Edit" onclick="startEdit('${c.id}')">✎</button>
             <button class="stall-btn" title="Mark stalled / reactivate" onclick="toggleStall('${c.id}')">${c.stalled ? '↺' : '⏸'}</button>
             <button class="stall-btn" title="Remove" onclick="removeClient('${c.id}')">✕</button>
@@ -1112,6 +1131,7 @@ function buildLiveClients(){
             </div>
             <div style="display:flex; gap:6px; margin-top:6px; align-items:center;">
               <button type="button" class="cancel-btn" style="flex:none; padding:6px 10px;" ${c.hasPrivateKey ? '' : 'disabled'} onclick="revealClientKey('${c.id}')">Reveal</button>
+              <button type="button" id="copyKeyBtn-${c.id}" class="copy-mini" style="padding:6px 10px;" disabled onclick="copyRevealedKey('${c.id}', this)">Copy</button>
               <button type="button" class="cancel-btn" style="flex:none; padding:6px 10px;" ${c.hasPrivateKey ? '' : 'disabled'} onclick="clearClientKey('${c.id}')">Clear</button>
               <span id="revealedKey-${c.id}" class="mono" style="font-size:10px; word-break:break-all; color:var(--gold);"></span>
             </div>
@@ -1243,14 +1263,30 @@ function buildProspectFunnel(){
 }
 
 function generateDashboardToken(id){
-  // Same shape as Python's secrets.token_urlsafe(24) — 24 random bytes,
-  // base64url-encoded, no padding. Generated client-side with the Web
-  // Crypto API (a real CSPRNG, not Math.random) since there's no need for
-  // a server round-trip just to generate random bytes.
-  const bytes = new Uint8Array(24);
-  crypto.getRandomValues(bytes);
-  let b64 = btoa(String.fromCharCode(...bytes));
-  const token = b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  // Lowercase letters + digits only — no uppercase, no symbols — so it
+  // reads cleanly if you ever need to glance at it or share it manually,
+  // instead of looking like line noise.
+  // 12 characters from a 36-symbol alphabet is ~62 bits of entropy. This
+  // token only guards a READ-ONLY balance view (not funds, not a private
+  // key), and there's no rate limiting on the dashboard endpoint to worry
+  // about tripping — the real-world constraint on guessing it is network
+  // round-trips, not offline hashing speed, so 62 bits is a very
+  // comfortable margin for that threat model. Generated via rejection
+  // sampling on the Web Crypto API (a real CSPRNG) so no character comes
+  // up more often than any other.
+  const ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  const LENGTH = 12;
+  let token = '';
+  const buf = new Uint8Array(1);
+  while (token.length < LENGTH) {
+    crypto.getRandomValues(buf);
+    // Reject bytes that don't divide evenly into the alphabet size, so
+    // every symbol remains equally likely rather than the low end of the
+    // byte range being slightly favoured.
+    if (buf[0] < 252) { // 252 = 7 * 36, the largest multiple of 36 under 256
+      token += ALPHABET[buf[0] % 36];
+    }
+  }
   const input = document.getElementById(`edit-dashboardTokenId-${id}`);
   if (input) input.value = token;
 }
