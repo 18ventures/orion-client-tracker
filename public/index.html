@@ -1046,13 +1046,15 @@ function buildFunnel(){
         const accountParts = [];
         if(c.initialBalance != null) accountParts.push(`Bal $${Number(c.initialBalance).toLocaleString()}`);
         if(c.dateFunded) accountParts.push(`Funded ${c.dateFunded}`);
-        if(c.dexWalletAddress) accountParts.push(`Wallet ${truncateMiddle(c.dexWalletAddress)}`);
         if(c.dashboardTokenId) accountParts.push('Token ✓');
         if(c.hasPrivateKey) accountParts.push('🔑 Key set');
         const copyBtns = c.dashboardTokenId
           ? ` <button type="button" class="copy-mini" title="Copy token" onclick="copyClientToken('${c.id}', this)">⧉</button><button type="button" class="copy-mini" title="Copy dashboard link" onclick="copyClientDashboardLink('${c.id}', this)">🔗</button>`
           : '';
         const accountRow = accountParts.length ? `<div class="payment-row">${accountParts.join(' · ')}${copyBtns}</div>` : '';
+        const walletRow = c.dexWalletAddress
+          ? `<div class="payment-row">Wallet ${truncateMiddle(c.dexWalletAddress)}<button type="button" class="copy-mini" title="Copy wallet address" onclick="copyClientWallet('${c.id}', this)">⧉</button></div>`
+          : '';
 
         const advanceBlocked = (idx === AGENT_PENDING_STAGE && !c.agentApproved);
 
@@ -1065,6 +1067,7 @@ function buildFunnel(){
           </div>
           ${paymentRow}
           ${accountRow}
+          ${walletRow}
           ${toggleRow}
           <div class="card-actions">
             <button class="stall-btn" title="Move back a stage" ${idx === 0 ? 'disabled' : ''} onclick="retreatClient('${c.id}')">←</button>
@@ -1181,13 +1184,15 @@ function buildLiveClients(){
     const accountParts = [];
     if(c.initialBalance != null) accountParts.push(`Bal $${Number(c.initialBalance).toLocaleString()}`);
     if(c.dateFunded) accountParts.push(`Funded ${c.dateFunded}`);
-    if(c.dexWalletAddress) accountParts.push(`Wallet ${truncateMiddle(c.dexWalletAddress)}`);
     if(c.dashboardTokenId) accountParts.push('Token ✓');
     if(c.hasPrivateKey) accountParts.push('🔑 Key set');
     const copyBtns = c.dashboardTokenId
       ? ` <button type="button" class="copy-mini" title="Copy token" onclick="copyClientToken('${c.id}', this)">⧉</button><button type="button" class="copy-mini" title="Copy dashboard link" onclick="copyClientDashboardLink('${c.id}', this)">🔗</button>`
       : '';
     const accountRow = accountParts.length ? `<div class="payment-row">${accountParts.join(' · ')}${copyBtns}</div>` : '';
+    const walletRow = c.dexWalletAddress
+      ? `<div class="payment-row">Wallet ${truncateMiddle(c.dexWalletAddress)}<button type="button" class="copy-mini" title="Copy wallet address" onclick="copyClientWallet('${c.id}', this)">⧉</button></div>`
+      : '';
 
     const toggleRow = `
       <div class="toggle-row">
@@ -1201,6 +1206,7 @@ function buildLiveClients(){
       <div class="card-source">${escapeHtml(c.source)} · #${pad3(c.clientNumber)}${c.referredBy ? ' · ref: ' + escapeHtml(c.referredBy) : ''}</div>
       ${paymentRow}
       ${accountRow}
+      ${walletRow}
       ${toggleRow}
       <div class="card-actions">
         <button class="stall-btn" title="Move back to Exchange (undo)" onclick="retreatToExchange('${c.id}')">← Exchange</button>
@@ -1311,6 +1317,13 @@ function flashCopyFeedback(btn){
   const original = btn.textContent;
   btn.textContent = 'Copied';
   setTimeout(() => { btn.textContent = original; }, 1200);
+}
+
+function copyClientWallet(id, btn){
+  const c = findClientAnywhere(id);
+  if (!c || !c.dexWalletAddress) return;
+  navigator.clipboard.writeText(c.dexWalletAddress);
+  flashCopyFeedback(btn);
 }
 
 function copyClientToken(id, btn){
