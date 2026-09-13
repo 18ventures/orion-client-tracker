@@ -289,7 +289,7 @@ let state = {
   prospectHistory: { added: 0, converted: 0, declined: 0 },
   xp: 0,
   earnedBadges: [],
-  nextClientNumber: 1,
+  nextClientNumber: 2, // #1 is reserved for Nathan's own master account on the bot — never assign it to a client
   telegramStageMigrated: false,
   walletExchangeStagesMigrated: false
 };
@@ -324,7 +324,7 @@ async function loadState(){
       if(!state.liveClients) state.liveClients = [];
       if(!state.prospects) state.prospects = [];
       if(!state.prospectHistory) state.prospectHistory = { added: 0, converted: 0, declined: 0 };
-      if(!state.nextClientNumber) state.nextClientNumber = 1;
+      if(!state.nextClientNumber) state.nextClientNumber = 2; // #1 reserved for the master account
       if(typeof state.telegramStageMigrated !== 'boolean') state.telegramStageMigrated = false;
       if(typeof state.walletExchangeStagesMigrated !== 'boolean') state.walletExchangeStagesMigrated = false;
       // Migrate prospects added before the column/stage system existed
@@ -589,6 +589,13 @@ function saveEdit(id){
   const dateFunded = document.getElementById(`edit-dateFunded-${id}`).value || null;
   const dashboardTokenId = document.getElementById(`edit-dashboardTokenId-${id}`).value.trim() || null;
   const dexWalletAddress = document.getElementById(`edit-dexWalletAddress-${id}`).value.trim() || null;
+  const clientNumberEl = document.getElementById(`edit-clientNumber-${id}`);
+  const clientNumberRaw = clientNumberEl ? clientNumberEl.value.trim() : String(c.clientNumber || '');
+  const clientNumber = clientNumberRaw === '' ? c.clientNumber : parseInt(clientNumberRaw, 10);
+  if(clientNumber === 1){
+    alert('Client # 1 is permanently reserved for Nathan\'s own master account on the bot. Choose a different number — this client will never sync if left as 1.');
+    return;
+  }
   if(name) c.name = name;
   c.source = source;
   c.referredBy = referredBy;
@@ -597,6 +604,7 @@ function saveEdit(id){
   c.dateFunded = dateFunded;
   c.dashboardTokenId = dashboardTokenId;
   c.dexWalletAddress = dexWalletAddress;
+  c.clientNumber = clientNumber;
   editingId = null;
   saveState();
   render();
@@ -961,6 +969,10 @@ function buildFunnel(){
                 <input id="edit-dateFunded-${c.id}" type="date" value="${c.dateFunded || ''}" />
               </div>
               <div>
+                <label>Client # (never 1 — reserved for Nathan's master account)</label>
+                <input id="edit-clientNumber-${c.id}" type="number" min="2" value="${c.clientNumber || ''}" />
+              </div>
+              <div>
                 <label>Dashboard token ID</label>
                 <div style="display:flex; gap:6px;">
                   <input id="edit-dashboardTokenId-${c.id}" value="${escapeHtml(c.dashboardTokenId || '')}" placeholder="CLIENT${c.clientNumber || 'N'}_DASHBOARD_TOKEN value" style="flex:1;" />
@@ -1111,6 +1123,10 @@ function buildLiveClients(){
           <div>
             <label>Date funded</label>
             <input id="edit-dateFunded-${c.id}" type="date" value="${c.dateFunded || ''}" />
+          </div>
+          <div>
+            <label>Client # (never 1 — reserved for Nathan's master account)</label>
+            <input id="edit-clientNumber-${c.id}" type="number" min="2" value="${c.clientNumber || ''}" />
           </div>
           <div>
             <label>Dashboard token ID</label>
