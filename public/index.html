@@ -375,7 +375,9 @@ async function loadState(){
         commandsFunctioning: false,
         testTradesSuccessful: false,
         accountFullyFunded: false,
-        activityLog: []
+        activityLog: [],
+        cycleStartBalance: null,
+        cycleStartDate: null
       }, c));
       // Migrate clients that were at the old "Live" stage (hardcoded index 4,
       // from before Live became its own tab) into the new liveClients array.
@@ -642,6 +644,7 @@ function saveEdit(id){
     alert('Client # 1 is permanently reserved for Nathan\'s own master account on the bot. Choose a different number — this client will never sync if left as 1.');
     return;
   }
+  const datePaidChanged = datePaid !== c.datePaid;
   if(name) c.name = name;
   c.source = source;
   c.referredBy = referredBy;
@@ -651,6 +654,22 @@ function saveEdit(id){
   c.dashboardTokenId = dashboardTokenId;
   c.dexWalletAddress = dexWalletAddress;
   c.clientNumber = clientNumber;
+
+  // A changed payment date means a new 30-day cycle just started — snapshot
+  // their CURRENT live balance as this cycle's baseline, so the 30% target
+  // is measured from where they actually are today, not from whenever they
+  // first funded (which could have been cycles ago).
+  if(datePaidChanged && datePaid){
+    const lb = liveBalances[id];
+    if(lb && lb.status === 'ok'){
+      c.cycleStartBalance = lb.balance;
+      c.cycleStartDate = datePaid;
+      logActivity(c, `💳 Renewal recorded — new 30-day cycle starting from $${lb.balance.toFixed(2)}`);
+    } else {
+      logActivity(c, `💳 Renewal recorded — live balance unavailable, 30-day target baseline not set`);
+    }
+  }
+
   editingId = null;
   saveState();
   render();
@@ -1323,6 +1342,35 @@ function buildLiveClients(){
       }
     }
 
+    // ── 30-day, 30% target tracking ──
+    // Measured from the start of the client's CURRENT cycle (set
+    // automatically when a renewal is recorded in the edit form), not from
+    // whenever they first funded — falls back to initialBalance/datePaid
+    // for clients who haven't had a renewal recorded since this was added.
+    let targetRow = '';
+    const cycleStart = c.cycleStartBalance != null ? c.cycleStartBalance : c.initialBalance;
+    const cycleDate = c.cycleStartDate || c.datePaid;
+    if(cycleStart && cycleStart > 0 && cycleDate && lb && lb.status === 'ok'){
+      const gainPct = (lb.balance - cycleStart) / cycleStart * 100;
+      const daysElapsed = Math.max(0, daysBetween(cycleDate, todayStr()));
+      const daysLeft = Math.max(0, 30 - daysElapsed);
+      const expectedPct = Math.min(30, daysElapsed); // target is 30% over 30 days = 1%/day
+      const barPct = Math.max(0, Math.min(100, gainPct / 30 * 100));
+      const onTrack = gainPct >= expectedPct;
+      const barColor = onTrack ? 'var(--green)' : (gainPct >= expectedPct - 5 ? 'var(--gold)' : 'var(--rust)');
+      targetRow = `
+        <div class="payment-row" style="display:block">
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+            <span>30-day target</span>
+            <span style="color:${barColor}">${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(1)}% / 30%</span>
+          </div>
+          <div style="background:var(--panel-raised);border-radius:4px;height:6px;overflow:hidden">
+            <div style="width:${barPct}%;height:100%;background:${barColor}"></div>
+          </div>
+          <div style="margin-top:3px;font-size:11px;color:var(--text-faint)">${daysElapsed}d in \u00b7 ${daysLeft}d left \u00b7 ${onTrack ? 'on track' : 'behind pace'}</div>
+        </div>`;
+    }
+
     const toggleRow = `
       <div class="toggle-row">
         <div class="toggle-chip ${c.commandsFunctioning ? 'on' : ''}" onclick="toggleStatus('${c.id}','commandsFunctioning')">Commands Functioning</div>
@@ -1335,6 +1383,7 @@ function buildLiveClients(){
       <div class="card-source">${escapeHtml(c.source)} · #${pad3(c.clientNumber)}${c.referredBy ? ' · ref: ' + escapeHtml(c.referredBy) : ''}</div>
       ${paymentRow}
       ${liveBalanceRow}
+      ${targetRow}
       ${accountRow}
       ${walletRow}
       ${toggleRow}
