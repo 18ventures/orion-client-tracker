@@ -1345,30 +1345,38 @@ function buildLiveClients(){
     }
 
     // ── 30-day, 30% target tracking ──
-    // Measured from the start of the client's CURRENT cycle (set
-    // automatically when a renewal is recorded in the edit form), not from
-    // whenever they first funded — falls back to initialBalance/datePaid
-    // for clients who haven't had a renewal recorded since this was added.
+    // The 30-day target's baseline defaults to their initial funded balance
+    // (cycle 1's "before the first trade" point, by definition). Once
+    // they renew, press Snapshot at that moment to set an explicit new
+    // baseline for the next cycle — otherwise every future cycle would
+    // keep measuring 30% against the ORIGINAL deposit forever, which
+    // would silently make each renewal's real target easier than it
+    // should be.
     let targetRow = '';
-    const cycleStart = c.cycleStartBalance;
-    const cycleDate = c.cycleStartDate;
+    const hasOverride = c.cycleStartBalance != null && c.cycleStartDate;
+    const cycleStart = hasOverride ? c.cycleStartBalance : c.initialBalance;
+    const cycleDate = hasOverride ? c.cycleStartDate : c.dateFunded;
     const history = c.dailyBalanceHistory || {};
     const historyDates = Object.keys(history).sort();
     const latestCloseDate = historyDates.length ? historyDates[historyDates.length - 1] : null;
     const latestClose = latestCloseDate ? history[latestCloseDate] : null;
-    const snapshotBtn = `<button type="button" class="copy-mini" title="Record their current live balance as the 30-day cycle baseline" onclick="snapshotClientBalance('${c.id}')">📸 Snapshot</button>`;
+    const snapshotBtn = `<button type="button" class="copy-mini" title="Renewed? Record their current balance as the new cycle's baseline" onclick="snapshotClientBalance('${c.id}')">📸 New cycle</button>`;
+    const clearBtn = hasOverride
+      ? `<button type="button" class="copy-mini" title="Clear the renewal snapshot and go back to using their initial balance" onclick="clearClientSnapshot('${c.id}')">↺ Reset</button>`
+      : '';
+    const baselineNote = hasOverride ? '' : ` <span style="color:var(--text-faint)">(initial)</span>`;
 
     if(!cycleStart || cycleStart <= 0 || !cycleDate){
       targetRow = `
         <div class="payment-row" style="display:flex;justify-content:space-between;align-items:center">
-          <span style="color:var(--text-faint)">30-day target — no baseline set</span>
+          <span style="color:var(--text-faint)">30-day target — set initial balance and funded date first</span>
           ${snapshotBtn}
         </div>`;
     } else if(latestClose == null){
       targetRow = `
         <div class="payment-row" style="display:block">
           <div>30-day target</div>
-          <div style="margin-top:3px;font-size:11px;color:var(--text-faint)">Baseline $${cycleStart.toFixed(2)} set ${cycleDate} \u00b7 first daily close not recorded yet ${snapshotBtn}</div>
+          <div style="margin-top:3px;font-size:11px;color:var(--text-faint)">Starting balance $${cycleStart.toFixed(2)} (${cycleDate})${baselineNote} \u00b7 first daily close not recorded yet ${snapshotBtn} ${clearBtn}</div>
         </div>`;
     } else {
       const gainPct = (latestClose - cycleStart) / cycleStart * 100;
@@ -1381,13 +1389,13 @@ function buildLiveClients(){
       targetRow = `
         <div class="payment-row" style="display:block">
           <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-            <span>30-day target</span>
+            <span>30-day target${baselineNote}</span>
             <span style="color:${barColor}">${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(1)}% / 30%</span>
           </div>
           <div style="background:var(--panel-raised);border-radius:4px;height:6px;overflow:hidden">
             <div style="width:${barPct}%;height:100%;background:${barColor}"></div>
           </div>
-          <div style="margin-top:3px;font-size:11px;color:var(--text-faint)">${daysElapsed}d in \u00b7 ${daysLeft}d left \u00b7 ${onTrack ? 'on track' : 'behind pace'} \u00b7 as of ${latestCloseDate} close ${snapshotBtn}</div>
+          <div style="margin-top:3px;font-size:11px;color:var(--text-faint)">${daysElapsed}d in \u00b7 ${daysLeft}d left \u00b7 ${onTrack ? 'on track' : 'behind pace'} \u00b7 as of ${latestCloseDate} close ${snapshotBtn} ${clearBtn}</div>
         </div>`;
     }
 
@@ -1586,13 +1594,24 @@ async function snapshotClientBalance(id){
     if(c){
       c.cycleStartBalance = data.cycleStartBalance;
       c.cycleStartDate = data.cycleStartDate;
-      logActivity(c, `\ud83d\udcf8 Balance snapshot taken: $${data.cycleStartBalance.toFixed(2)} \u2014 30-day cycle baseline set`);
+      logActivity(c, `\ud83d\udcf8 New cycle baseline set: $${data.cycleStartBalance.toFixed(2)} as of ${data.cycleStartDate}`);
       saveState();
     }
     render();
   }catch(e){
     alert('Request failed: ' + e.message);
   }
+}
+
+function clearClientSnapshot(id){
+  const c = findClientAnywhere(id);
+  if(!c) return;
+  if(!confirm(`Clear the renewal snapshot for ${c.name}? The 30-day target will go back to using their initial balance ($${c.initialBalance != null ? c.initialBalance.toFixed(2) : 'not set'}).`)) return;
+  c.cycleStartBalance = null;
+  c.cycleStartDate = null;
+  logActivity(c, '↺ Renewal snapshot cleared — 30-day target reverted to initial balance');
+  saveState();
+  render();
 }
 
 async function loadLiveBalances(){
