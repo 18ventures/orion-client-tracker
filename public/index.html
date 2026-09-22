@@ -107,10 +107,10 @@
   .btn-ghost:hover{ color:var(--text); border-color:var(--text-faint); }
 
   .funnel{
-    display:grid; grid-template-columns: repeat(5, minmax(200px,1fr));
-    gap:14px; padding: 22px 28px 40px; overflow-x:auto;
+    display:grid; grid-template-columns: repeat(5, minmax(0,1fr));
+    gap:10px; padding: 22px 28px 40px; overflow-x:auto;
   }
-  .stage-col{ min-width:200px; }
+  .stage-col{ min-width:0; }
   .stage-head{
     display:flex; justify-content:space-between; align-items:baseline;
     padding: 0 4px 12px; border-bottom: 2px solid var(--hairline); margin-bottom:14px;
@@ -147,7 +147,7 @@
   .toggle-chip.on{ background: var(--green-soft); color: var(--green); border-color: var(--green); }
   .toggle-chip:hover{ opacity:0.85; }
 
-  .card-actions{ display:flex; gap:6px; }
+  .card-actions{ display:flex; gap:6px; flex-wrap:wrap; }
   .payment-row{ font-size:11px; color:var(--text-dim); margin-bottom:10px; font-family:'IBM Plex Mono', monospace; padding:4px 6px; border-radius:5px; }
   .payment-row.due-soon{ color: var(--gold); background: var(--gold-soft); font-weight:600; }
   .payment-row.overdue{ color: var(--rust); background: var(--rust-soft); font-weight:700; }
@@ -266,7 +266,7 @@
 <footer>Client Pipeline CRM — hosted on Railway</footer>
 
 <script>
-const STAGES = ["Contacted", "Wallet Created", "Wallet Funded", "Exchange Account Live", "Agent Wallet Needs Approval", "Agent Approved"];
+const STAGES = ["Paid", "Wallet Created", "Wallet Funded", "Exchange Account Live", "Agent Wallet Needs Approval", "Agent Approved"];
 const STAGE_XP = [5, 10, 15, 20, 22, 25];
 const GRADUATION_XP = 50;
 const MONTHLY_FEE_GBP = 60;
@@ -377,7 +377,8 @@ async function loadState(){
         accountFullyFunded: false,
         activityLog: [],
         cycleStartBalance: null,
-        cycleStartDate: null
+        cycleStartDate: null,
+        dailyBalanceHistory: {}
       }, c));
       // Migrate clients that were at the old "Live" stage (hardcoded index 4,
       // from before Live became its own tab) into the new liveClients array.
@@ -486,7 +487,6 @@ function addClient(){
     clientNumber: state.nextClientNumber,
     name, source, referredBy, stage: 0,
     lastMove: todayStr(),
-    stalled: false,
     metamask: false,
     rabby: false,
     hyperliquid: false,
@@ -550,7 +550,6 @@ function advanceClient(id){
   if(c.stage === AGENT_PENDING_STAGE && !c.agentApproved) return; // don't advance past pending approval
   c.stage += 1;
   c.lastMove = todayStr();
-  c.stalled = false;
   logActivity(c, `Advanced to "${STAGES[c.stage]}"`);
   addXP(STAGE_XP[c.stage]);
   checkBadges();
@@ -574,7 +573,6 @@ function graduateClient(id){
   state.clients = state.clients.filter(x => x.id !== id);
   delete c.stage;
   delete c.lastMove;
-  c.stalled = false;
   logActivity(c, '🎉 Went live');
   state.liveClients.push(c);
   addXP(GRADUATION_XP);
@@ -655,19 +653,11 @@ function saveEdit(id){
   c.dexWalletAddress = dexWalletAddress;
   c.clientNumber = clientNumber;
 
-  // A changed payment date means a new 30-day cycle just started — snapshot
-  // their CURRENT live balance as this cycle's baseline, so the 30% target
-  // is measured from where they actually are today, not from whenever they
-  // first funded (which could have been cycles ago).
+  // The 30-day cycle baseline is now set explicitly via the Snapshot
+  // Balance button, not inferred from editing the payment date — this
+  // just logs the renewal itself for the activity trail.
   if(datePaidChanged && datePaid){
-    const lb = liveBalances[id];
-    if(lb && lb.status === 'ok'){
-      c.cycleStartBalance = lb.balance;
-      c.cycleStartDate = datePaid;
-      logActivity(c, `💳 Renewal recorded — new 30-day cycle starting from $${lb.balance.toFixed(2)}`);
-    } else {
-      logActivity(c, `💳 Renewal recorded — live balance unavailable, 30-day target baseline not set`);
-    }
+    logActivity(c, `💳 Renewal recorded (${datePaid})`);
   }
 
   editingId = null;
@@ -755,14 +745,6 @@ function copyRevealedKey(id, btn){
   flashCopyFeedback(btn);
 }
 
-function toggleStall(id){
-  const c = findClientAnywhere(id);
-  if(!c) return;
-  c.stalled = !c.stalled;
-  saveState();
-  render();
-}
-
 function toggleStatus(id, field){
   const c = findClientAnywhere(id);
   if(!c) return;
@@ -839,7 +821,6 @@ function promoteProspect(id){
     clientNumber: state.nextClientNumber,
     name: p.name, source: p.source, referredBy: p.referredBy || null, stage: 0,
     lastMove: todayStr(),
-    stalled: false,
     metamask: false,
     rabby: false,
     hyperliquid: false,
@@ -879,13 +860,11 @@ function checkBadges(){
 }
 
 function pulseClass(c){
-  if(c.stalled) return 'cold';
   const days = daysBetween(c.lastMove, todayStr());
   if(days >= 5) return 'stale';
   return '';
 }
 function pulseLabel(c){
-  if(c.stalled) return 'Marked stalled';
   const days = daysBetween(c.lastMove, todayStr());
   if(days === 0) return 'Moved today';
   if(days === 1) return '1 day since move';
@@ -1110,12 +1089,10 @@ function buildFunnel(){
             <div class="toggle-chip ${c.lighter ? 'on' : ''}" onclick="toggleStatus('${c.id}','lighter')">Lighter</div>
             <div class="toggle-chip ${c.cex ? 'on' : ''}" onclick="toggleStatus('${c.id}','cex')">CEX</div>
           </div>`;
-        } else if(idx === AGENT_PENDING_STAGE){
-          toggleRow = `
-          <div class="toggle-row">
-            <div class="toggle-chip ${c.agentApproved ? 'on' : ''}" onclick="toggleStatus('${c.id}','agentApproved')">Agent Wallet Approved</div>
-          </div>`;
         }
+        const agentApprovedChip = idx === AGENT_PENDING_STAGE
+          ? `<div class="toggle-chip ${c.agentApproved ? 'on' : ''}" style="flex:0 1 auto" onclick="toggleStatus('${c.id}','agentApproved')">${c.agentApproved ? '✓ Client credentials correct' : 'Client credentials correct?'}</div>`
+          : '';
 
         let paymentRow = `<div class="payment-row no-date">No payment date set</div>`;
         if(c.datePaid){
@@ -1156,11 +1133,11 @@ function buildFunnel(){
           ${toggleRow}
           ${activityLogBlock(c)}
           <div class="card-actions">
+            ${agentApprovedChip}
             <button class="stall-btn" title="Move back a stage" ${idx === 0 ? 'disabled' : ''} onclick="retreatClient('${c.id}')">←</button>
-            <button ${advanceBlocked ? 'disabled title="Confirm the agent wallet is approved first"' : ''} onclick="${isLast ? `graduateClient('${c.id}')` : `advanceClient('${c.id}')`}" ${isLast ? 'class="promote-btn"' : ''}>${isLast ? '🎉 Go Live' : 'Advance →'}</button>
+            <button ${advanceBlocked ? 'disabled title="Confirm the client\'s credentials are correct first"' : ''} onclick="${isLast ? `graduateClient('${c.id}')` : `advanceClient('${c.id}')`}" ${isLast ? 'class="promote-btn"' : ''}>${isLast ? '🎉 Go Live' : 'Advance →'}</button>
             <button class="stall-btn" title="Edit" onclick="startEdit('${c.id}')">✎</button>
             ${activityLogButton(c)}
-            <button class="stall-btn" title="Mark stalled / reactivate" onclick="toggleStall('${c.id}')">${c.stalled ? '↺' : '⏸'}</button>
             <button class="stall-btn" title="Remove" onclick="removeClient('${c.id}')">✕</button>
           </div>
         `;
@@ -1362,10 +1339,28 @@ function buildLiveClients(){
     // whenever they first funded — falls back to initialBalance/datePaid
     // for clients who haven't had a renewal recorded since this was added.
     let targetRow = '';
-    const cycleStart = c.cycleStartBalance != null ? c.cycleStartBalance : c.initialBalance;
-    const cycleDate = c.cycleStartDate || c.datePaid;
-    if(cycleStart && cycleStart > 0 && cycleDate && lb && lb.status === 'ok'){
-      const gainPct = (lb.balance - cycleStart) / cycleStart * 100;
+    const cycleStart = c.cycleStartBalance;
+    const cycleDate = c.cycleStartDate;
+    const history = c.dailyBalanceHistory || {};
+    const historyDates = Object.keys(history).sort();
+    const latestCloseDate = historyDates.length ? historyDates[historyDates.length - 1] : null;
+    const latestClose = latestCloseDate ? history[latestCloseDate] : null;
+    const snapshotBtn = `<button type="button" class="copy-mini" title="Record their current live balance as the 30-day cycle baseline" onclick="snapshotClientBalance('${c.id}')">📸 Snapshot</button>`;
+
+    if(!cycleStart || cycleStart <= 0 || !cycleDate){
+      targetRow = `
+        <div class="payment-row" style="display:flex;justify-content:space-between;align-items:center">
+          <span style="color:var(--text-faint)">30-day target — no baseline set</span>
+          ${snapshotBtn}
+        </div>`;
+    } else if(latestClose == null){
+      targetRow = `
+        <div class="payment-row" style="display:block">
+          <div>30-day target</div>
+          <div style="margin-top:3px;font-size:11px;color:var(--text-faint)">Baseline $${cycleStart.toFixed(2)} set ${cycleDate} \u00b7 first daily close not recorded yet ${snapshotBtn}</div>
+        </div>`;
+    } else {
+      const gainPct = (latestClose - cycleStart) / cycleStart * 100;
       const daysElapsed = Math.max(0, daysBetween(cycleDate, todayStr()));
       const daysLeft = Math.max(0, 30 - daysElapsed);
       const expectedPct = Math.min(30, daysElapsed); // target is 30% over 30 days = 1%/day
@@ -1381,7 +1376,7 @@ function buildLiveClients(){
           <div style="background:var(--panel-raised);border-radius:4px;height:6px;overflow:hidden">
             <div style="width:${barPct}%;height:100%;background:${barColor}"></div>
           </div>
-          <div style="margin-top:3px;font-size:11px;color:var(--text-faint)">${daysElapsed}d in \u00b7 ${daysLeft}d left \u00b7 ${onTrack ? 'on track' : 'behind pace'}</div>
+          <div style="margin-top:3px;font-size:11px;color:var(--text-faint)">${daysElapsed}d in \u00b7 ${daysLeft}d left \u00b7 ${onTrack ? 'on track' : 'behind pace'} \u00b7 as of ${latestCloseDate} close ${snapshotBtn}</div>
         </div>`;
     }
 
@@ -1406,7 +1401,6 @@ function buildLiveClients(){
         <button class="stall-btn" title="Move back to Exchange (undo)" onclick="retreatToExchange('${c.id}')">← Exchange</button>
         <button class="stall-btn" title="Edit" onclick="startEdit('${c.id}')">✎</button>
         ${activityLogButton(c)}
-        <button class="stall-btn" title="Mark stalled / reactivate" onclick="toggleStall('${c.id}')">${c.stalled ? '↺' : '⏸'}</button>
         <button class="stall-btn" title="Remove" onclick="removeLiveClient('${c.id}')">✕</button>
       </div>
     `;
@@ -1568,6 +1562,27 @@ function launchConfetti(){
 
 let liveBalances = {}; // {clientId: {status, balance}} — fetched from Hyperliquid, not part of saved state
 let dailyPnl = { clients: {}, total: { pnl: 0, trades: 0 } }; // same — fetched fresh, not saved state
+
+async function snapshotClientBalance(id){
+  try{
+    const res = await fetch(`/api/clients/${id}/snapshot-balance`, {
+      method: 'POST',
+      headers: { ...(PIPELINE_KEY ? { 'x-pipeline-key': PIPELINE_KEY } : {}) }
+    });
+    const data = await res.json();
+    if(!res.ok){ alert('Failed to snapshot balance: ' + (data.error || 'unknown error')); return; }
+    const c = findClientAnywhere(id);
+    if(c){
+      c.cycleStartBalance = data.cycleStartBalance;
+      c.cycleStartDate = data.cycleStartDate;
+      logActivity(c, `\ud83d\udcf8 Balance snapshot taken: $${data.cycleStartBalance.toFixed(2)} \u2014 30-day cycle baseline set`);
+      saveState();
+    }
+    render();
+  }catch(e){
+    alert('Request failed: ' + e.message);
+  }
+}
 
 async function loadLiveBalances(){
   try{
