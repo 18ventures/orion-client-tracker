@@ -1340,7 +1340,13 @@ function buildLiveClients(){
     if(c.dexWalletAddress){
       if(lb && lb.status === 'ok'){
         const posBadge = lb.position
-          ? `<span style="margin-left:8px;padding:2px 8px;border-radius:5px;font-size:11px;font-weight:700;background:${lb.position.direction === 'LONG' ? 'var(--green-soft)' : 'var(--rust-soft)'};color:${lb.position.direction === 'LONG' ? 'var(--green)' : 'var(--rust)'}">${lb.position.direction === 'LONG' ? '▲' : '▼'} ${lb.position.direction} ${lb.position.size}</span>`
+          ? (() => {
+              const pnl = lb.position.unrealizedPnl || 0;
+              const pnlStr = `${pnl >= 0 ? '+' : ''}$${pnl.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+              const pnlColorBg = pnl >= 0 ? 'var(--green-soft)' : 'var(--rust-soft)';
+              const pnlColorFg = pnl >= 0 ? 'var(--green)' : 'var(--rust)';
+              return `<span style="margin-left:8px;padding:2px 8px;border-radius:5px;font-size:11px;font-weight:700;background:${pnlColorBg};color:${pnlColorFg}">${lb.position.direction === 'LONG' ? '▲' : '▼'} ${lb.position.direction} ${pnlStr}</span>`;
+            })()
           : `<span style="margin-left:8px;padding:2px 8px;border-radius:5px;font-size:11px;color:var(--text-faint);background:var(--panel-raised)">No open trade</span>`;
         liveBalanceRow = `<div class="payment-row"><b style="color:var(--gold)">Live: $${Number(lb.balance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</b>${posBadge}</div>`;
       } else if(lb && lb.status === 'error'){
