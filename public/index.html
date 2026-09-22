@@ -989,6 +989,7 @@ function buildFunnel(){
   const funnel = document.createElement('div');
   funnel.className = 'funnel';
   funnel.id = 'funnel';
+  funnel.style.gridTemplateColumns = `repeat(${STAGES.length}, minmax(0,1fr))`;
 
   STAGES.forEach((stageName, idx) => {
     const col = document.createElement('div');
@@ -1325,7 +1326,17 @@ function buildLiveClients(){
               return `<span style="margin-left:8px;padding:2px 8px;border-radius:5px;font-size:11px;font-weight:700;background:${pnlColorBg};color:${pnlColorFg}">${lb.position.direction === 'LONG' ? '▲' : '▼'} ${lb.position.direction} ${pnlStr}</span>`;
             })()
           : `<span style="margin-left:8px;padding:2px 8px;border-radius:5px;font-size:11px;color:var(--text-faint);background:var(--panel-raised)">No open trade</span>`;
-        liveBalanceRow = `<div class="payment-row"><b style="color:var(--gold)">Live: $${Number(lb.balance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</b>${posBadge}</div>`;
+        // Overall growth vs their original initial deposit — simple v1 as
+        // discussed: doesn't yet account for any additional deposits after
+        // the first, which would need a net-deposits basis to stay
+        // accurate. Fine for now while that isn't happening.
+        let growthBadge = '';
+        if(c.initialBalance && c.initialBalance > 0){
+          const growthPct = (lb.balance - c.initialBalance) / c.initialBalance * 100;
+          const growthColor = growthPct >= 0 ? 'var(--green)' : 'var(--rust)';
+          growthBadge = `<span style="margin-left:8px;font-weight:700;color:${growthColor}">${growthPct >= 0 ? '+' : ''}${growthPct.toFixed(1)}%</span>`;
+        }
+        liveBalanceRow = `<div class="payment-row"><b style="color:var(--gold)">Live: $${Number(lb.balance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</b>${growthBadge}${posBadge}</div>`;
       } else if(lb && lb.status === 'error'){
         liveBalanceRow = `<div class="payment-row" style="color:var(--text-faint)">Live balance unavailable</div>`;
       } else {
