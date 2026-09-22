@@ -1191,6 +1191,7 @@ function buildLiveClients(){
     .filter(b => b && b.status === 'ok');
   const totalAum = okBalances.reduce((sum, b) => sum + b.balance, 0);
   const aumCoverage = `${okBalances.length}/${state.liveClients.length} accounts`;
+  const openTradesCount = okBalances.filter(b => b.position).length;
 
   // Daily P&L — from the /api/clients/daily-pnl fetch
   const pnlVal = dailyPnl.total.pnl || 0;
@@ -1222,6 +1223,10 @@ function buildLiveClients(){
         <div>
           <div style="font-size:11px; color:var(--text-faint);">TODAY'S P&amp;L (all clients)</div>
           <div style="font-size:22px; font-weight:700; color:${pnlColor};">${pnlSign}$${Math.abs(pnlVal).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} <span style="font-size:12px; font-weight:400; color:var(--text-faint);">(${pnlTrades} trades)</span></div>
+        </div>
+        <div>
+          <div style="font-size:11px; color:var(--text-faint);">TRADES OPEN NOW</div>
+          <div style="font-size:22px; font-weight:700; color:${openTradesCount > 0 ? 'var(--green)' : 'var(--text-faint)'};">${openTradesCount} / ${okBalances.length}</div>
         </div>
         <button type="button" class="save-btn" style="padding:6px 12px; font-size:12px;" onclick="refreshLiveData()">↻ Refresh</button>
       </div>
@@ -1334,7 +1339,10 @@ function buildLiveClients(){
     let liveBalanceRow = '';
     if(c.dexWalletAddress){
       if(lb && lb.status === 'ok'){
-        liveBalanceRow = `<div class="payment-row"><b style="color:var(--gold)">Live: $${Number(lb.balance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</b></div>`;
+        const posBadge = lb.position
+          ? `<span style="margin-left:8px;padding:2px 8px;border-radius:5px;font-size:11px;font-weight:700;background:${lb.position.direction === 'LONG' ? 'var(--green-soft)' : 'var(--rust-soft)'};color:${lb.position.direction === 'LONG' ? 'var(--green)' : 'var(--rust)'}">${lb.position.direction === 'LONG' ? '▲' : '▼'} ${lb.position.direction} ${lb.position.size}</span>`
+          : `<span style="margin-left:8px;padding:2px 8px;border-radius:5px;font-size:11px;color:var(--text-faint);background:var(--panel-raised)">No open trade</span>`;
+        liveBalanceRow = `<div class="payment-row"><b style="color:var(--gold)">Live: $${Number(lb.balance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</b>${posBadge}</div>`;
       } else if(lb && lb.status === 'error'){
         liveBalanceRow = `<div class="payment-row" style="color:var(--text-faint)">Live balance unavailable</div>`;
       } else {
