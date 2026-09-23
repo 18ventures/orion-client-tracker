@@ -266,16 +266,15 @@
 <footer>Client Pipeline CRM — hosted on Railway</footer>
 
 <script>
-const STAGES = ["Paid", "Wallet Created", "Wallet Funded", "Exchange Account Live", "Agent Wallet Needs Approval", "Agent Approved"];
-const STAGE_XP = [5, 10, 15, 20, 22, 25];
+const STAGES = ["Paid", "Wallet Created", "Exchange Account Live", "Agent Wallet Needs Approval", "Agent Approved"];
+const STAGE_XP = [5, 10, 15, 20, 25];
 const GRADUATION_XP = 50;
 const MONTHLY_FEE_GBP = 60;
 const LAST_STAGE = STAGES.length - 1;
 const WALLET_STAGE = 1;
-const FUNDED_STAGE = 2;
-const EXCHANGE_STAGE = 3;
-const AGENT_PENDING_STAGE = 4;
-const AGENT_APPROVED_STAGE = 5;
+const EXCHANGE_STAGE = 2;
+const AGENT_PENDING_STAGE = 3;
+const AGENT_APPROVED_STAGE = 4;
 const ASSUMED_CONVERSION_RATE = 0.15; // assumed 15% of prospects convert every 30 days
 const SOURCES = ["Referral","Telegram","Warm intro","Cold outreach","Family","Friend","Social event","Business event","Other"];
 const PROSPECT_STAGES = ["Haven't Contacted", "Discussed Bot", "Discussed 2x", "Showed Material"];
@@ -364,7 +363,8 @@ async function loadState(){
         commandsFunctioning: false,
         testTradesSuccessful: false,
         accountFullyFunded: false,
-        activityLog: []
+        activityLog: [],
+        walletFunded: false
       }, c));
       state.liveClients = state.liveClients.map(c => Object.assign({
         initialBalance: null,
@@ -426,6 +426,21 @@ async function loadState(){
           }
         });
         state.walletExchangeStagesMigrated = true;
+      }
+      // One-time migration merging Wallet Funded back into Wallet Created
+      // as a toggle chip (walletFunded field) rather than its own stage.
+      // Old numbering: 0 Paid, 1 Wallet Created, 2 Wallet Funded,
+      //                3 Exchange Account Live, 4 Agent Wallet Needs Approval, 5 Agent Approved.
+      // New numbering: 0 Paid, 1 Wallet Created, 2 Exchange Account Live,
+      //                3 Agent Wallet Needs Approval, 4 Agent Approved.
+      if(!state.walletFundedMergedIntoCreated){
+        state.clients.forEach(c => {
+          if(typeof c.stage === 'number'){
+            if(c.stage === 2){ c.stage = 1; c.walletFunded = true; } // old Wallet Funded -> Wallet Created, mark funded
+            else if(c.stage >= 3){ c.stage = c.stage - 1; } // shift later stages down by one
+          }
+        });
+        state.walletFundedMergedIntoCreated = true;
       }
     }
     note.textContent = 'synced';
@@ -501,6 +516,7 @@ function addClient(){
     dashboardTokenId: null,
     dexWalletAddress: null,
     hasPrivateKey: false,
+    walletFunded: false,
     activityLog: [{ ts: new Date().toISOString(), event: 'Added to pipeline' }]
   });
   state.nextClientNumber += 1;
@@ -835,6 +851,7 @@ function promoteProspect(id){
     dashboardTokenId: null,
     dexWalletAddress: null,
     hasPrivateKey: false,
+    walletFunded: false,
     activityLog: [{ ts: new Date().toISOString(), event: 'Converted from prospect' }]
   });
   state.nextClientNumber += 1;
@@ -1082,6 +1099,7 @@ function buildFunnel(){
           <div class="toggle-row">
             <div class="toggle-chip ${c.metamask ? 'on' : ''}" onclick="toggleStatus('${c.id}','metamask')">Metamask</div>
             <div class="toggle-chip ${c.rabby ? 'on' : ''}" onclick="toggleStatus('${c.id}','rabby')">Rabby</div>
+            <div class="toggle-chip ${c.walletFunded ? 'on' : ''}" onclick="toggleStatus('${c.id}','walletFunded')">Wallet Funded</div>
           </div>`;
         } else if(idx === EXCHANGE_STAGE){
           toggleRow = `
@@ -1298,7 +1316,10 @@ function buildLiveClients(){
       const overdue = daysToRenewal <= 1;
       const dueSoon = !overdue && daysToRenewal <= 5;
       const rowClass = overdue ? 'overdue' : (dueSoon ? 'due-soon' : '');
-      paymentRow = `<div class="payment-row ${rowClass}">Member ${memberDays}d · Renews ${renewal} (${daysToRenewal}d)</div>`;
+      const remindBtn = daysToRenewal <= 3
+        ? ` <button type="button" class="copy-mini" title="Send a renewal reminder to their Orion dashboard" onclick="sendRenewalReminder('${c.id}', ${daysToRenewal}, '${renewal}')">🔔 Remind</button>`
+        : '';
+      paymentRow = `<div class="payment-row ${rowClass}">Member ${memberDays}d · Renews ${renewal} (${daysToRenewal}d)${remindBtn}</div>`;
     }
 
     const accountParts = [];
@@ -1581,6 +1602,28 @@ function launchConfetti(){
 
 let liveBalances = {}; // {clientId: {status, balance}} — fetched from Hyperliquid, not part of saved state
 let dailyPnl = { clients: {}, total: { pnl: 0, trades: 0 } }; // same — fetched fresh, not saved state
+
+async function sendRenewalReminder(id, daysToRenewal, renewalDate){
+  const c = findClientAnywhere(id);
+  if(!c) return;
+  const dayWord = daysToRenewal <= 0 ? 'today' : (daysToRenewal === 1 ? 'tomorrow' : `in ${daysToRenewal} days`);
+  const message = `Reminder: your subscription renews ${dayWord} (${renewalDate}). Please make sure your account stays funded so trading can continue without interruption.`;
+  if(!confirm(`Send this reminder to ${c.name}'s Orion dashboard?\n\n"${message}"`)) return;
+  try{
+    const res = await fetch(`/api/clients/${id}/send-renewal-reminder`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(PIPELINE_KEY ? { 'x-pipeline-key': PIPELINE_KEY } : {}) },
+      body: JSON.stringify({ message })
+    });
+    const data = await res.json();
+    if(!res.ok){ alert('Failed to send reminder: ' + (data.error || 'unknown error')); return; }
+    logActivity(c, `🔔 Renewal reminder sent (renews ${renewalDate})`);
+    saveState();
+    render();
+  }catch(e){
+    alert('Request failed: ' + e.message);
+  }
+}
 
 async function snapshotClientBalance(id){
   try{
