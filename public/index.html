@@ -124,7 +124,7 @@
     padding:14px; margin-bottom:12px; position:relative;
   }
   .card-name{ font-weight:700; font-size:14px; margin-bottom:2px; }
-  .card-source{ font-size:11px; color:var(--text-faint); margin-bottom:10px; }
+  .card-source{ font-size:11px; color:var(--text-dim); margin-bottom:10px; }
   .pulse-row{ display:flex; align-items:center; gap:6px; margin-bottom:12px; }
   .pulse-dot{
     width:7px; height:7px; border-radius:50%; background: var(--green);
@@ -147,7 +147,7 @@
   .toggle-chip.on{ background: var(--green-soft); color: var(--green); border-color: var(--green); }
   .toggle-chip:hover{ opacity:0.85; }
 
-  .card-actions{ display:flex; gap:6px; flex-wrap:wrap; }
+  .card-actions{ display:flex; gap:6px; flex-wrap:wrap; justify-content:space-between; }
   .payment-row{ font-size:11px; color:var(--text-dim); margin-bottom:10px; font-family:'IBM Plex Mono', monospace; padding:4px 6px; border-radius:5px; }
   .payment-row.due-soon{ color: var(--gold); background: var(--gold-soft); font-weight:600; }
   .payment-row.overdue{ color: var(--rust); background: var(--rust-soft); font-weight:700; }
@@ -1474,7 +1474,7 @@ function buildLiveClients(){
               const pnlColorFg = pnl >= 0 ? 'var(--green)' : 'var(--rust)';
               return `<span style="margin-left:8px;padding:2px 8px;border-radius:5px;font-size:11px;font-weight:700;background:${pnlColorBg};color:${pnlColorFg}">${lb.position.direction === 'LONG' ? '▲' : '▼'} ${lb.position.direction} ${pnlStr}</span>`;
             })()
-          : `<span style="margin-left:8px;padding:2px 8px;border-radius:5px;font-size:11px;color:var(--text-faint);background:var(--panel-raised)">No open trade</span>`;
+          : `<span style="margin-left:8px;padding:2px 8px;border-radius:5px;font-size:11px;color:var(--text-dim);background:var(--panel-raised)">No open trade</span>`;
         // Overall growth vs their original initial deposit — simple v1 as
         // discussed: doesn't yet account for any additional deposits after
         // the first, which would need a net-deposits basis to stay
@@ -1513,7 +1513,7 @@ function buildLiveClients(){
     const clearBtn = hasOverride
       ? `<button type="button" class="copy-mini" title="Clear the renewal snapshot and go back to using their initial balance" onclick="clearClientSnapshot('${c.id}')">↺ Reset</button>`
       : '';
-    const baselineNote = hasOverride ? '' : ` <span style="color:var(--text-faint)">(initial)</span>`;
+    const baselineNote = hasOverride ? '' : ` <span style="color:var(--text-dim)">(initial)</span>`;
 
     if(!cycleStart || cycleStart <= 0 || !cycleDate){
       targetRow = `
@@ -1525,7 +1525,7 @@ function buildLiveClients(){
       targetRow = `
         <div class="payment-row" style="display:block">
           <div>30-day target</div>
-          <div style="margin-top:3px;font-size:11px;color:var(--text-faint)">Starting balance $${cycleStart.toFixed(2)} (${cycleDate})${baselineNote} \u00b7 first daily close not recorded yet ${snapshotBtn} ${clearBtn}</div>
+          <div style="margin-top:3px;font-size:11px;color:var(--text-dim)">Starting balance $${cycleStart.toFixed(2)} (${cycleDate})${baselineNote} \u00b7 first daily close not recorded yet ${snapshotBtn} ${clearBtn}</div>
         </div>`;
     } else {
       const gainPct = (latestClose - cycleStart) / cycleStart * 100;
@@ -1544,7 +1544,7 @@ function buildLiveClients(){
           <div style="background:var(--panel-raised);border-radius:4px;height:6px;overflow:hidden">
             <div style="width:${barPct}%;height:100%;background:${barColor}"></div>
           </div>
-          <div style="margin-top:3px;font-size:11px;color:var(--text-faint)">${daysElapsed}d in \u00b7 ${daysLeft}d left \u00b7 ${onTrack ? 'on track' : 'behind pace'} \u00b7 as of ${latestCloseDate} close ${snapshotBtn} ${clearBtn}</div>
+          <div style="margin-top:3px;font-size:11px;color:var(--text-dim)">${daysElapsed}d in \u00b7 ${daysLeft}d left \u00b7 ${onTrack ? 'on track' : 'behind pace'} \u00b7 as of ${latestCloseDate} close ${snapshotBtn} ${clearBtn}</div>
         </div>`;
     }
 
@@ -1569,7 +1569,8 @@ function buildLiveClients(){
         <button class="stall-btn" title="Move back to Exchange (undo)" onclick="retreatToExchange('${c.id}')">← Exchange</button>
         <button class="stall-btn" title="Edit" onclick="startEdit('${c.id}')">✎</button>
         ${activityLogButton(c)}
-        <button class="stall-btn" title="Offboard this client" onclick="offboardClient('${c.id}')">🚪 Offboard</button>
+        <button class="stall-btn" title="Download this cycle's statement" onclick="downloadStatement('${c.id}')">📄 Statement</button>
+        <button class="stall-btn" title="Offboard this client" onclick="offboardClient('${c.id}')">Offboard</button>
       </div>
     `;
     wrap.appendChild(card);
@@ -1777,6 +1778,35 @@ async function exportBackup(){
     URL.revokeObjectURL(url);
   }catch(e){
     alert('Backup request failed: ' + e.message);
+  }
+}
+
+async function downloadStatement(id){
+  const c = findClientAnywhere(id);
+  if(!c) return;
+  try{
+    const res = await fetch(`/api/clients/${id}/statement`, {
+      headers: { ...(PIPELINE_KEY ? { 'x-pipeline-key': PIPELINE_KEY } : {}) }
+    });
+    if(!res.ok){
+      const data = await res.json().catch(() => ({}));
+      alert('Failed to generate statement: ' + (data.error || 'unknown error'));
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="(.+)"/);
+    const filename = match ? match[1] : `${c.name}-statement.pdf`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }catch(e){
+    alert('Statement request failed: ' + e.message);
   }
 }
 
