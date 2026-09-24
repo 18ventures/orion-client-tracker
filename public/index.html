@@ -241,12 +241,14 @@
         <div class="xp-text" id="xpText">0 / 100 XP</div>
       </div>
     </div>
+    <button type="button" class="copy-mini" style="margin-left:14px;padding:6px 12px;font-size:11px" title="Download a full backup of everything in this CRM" onclick="exportBackup()">⬇ Backup</button>
   </div>
 
   <div class="tabs">
     <div class="tab-btn" id="tab-live" onclick="switchTab('live')">Live Clients</div>
     <div class="tab-btn" id="tab-pipeline" onclick="switchTab('pipeline')">Pipeline</div>
     <div class="tab-btn" id="tab-prospecting" onclick="switchTab('prospecting')">Prospecting</div>
+    <div class="tab-btn" id="tab-removed" onclick="switchTab('removed')">Removed</div>
   </div>
 
   <div class="stats-row" id="statsRow"></div>
@@ -266,15 +268,14 @@
 <footer>Client Pipeline CRM — hosted on Railway</footer>
 
 <script>
-const STAGES = ["Paid", "Wallet Created", "Exchange Account Live", "Agent Wallet Needs Approval", "Agent Approved"];
-const STAGE_XP = [5, 10, 15, 20, 25];
+const STAGES = ["Paid", "Wallet Created", "Exchange Account Live", "Agent Wallet Needs Approval"];
+const STAGE_XP = [5, 10, 15, 25];
 const GRADUATION_XP = 50;
 const MONTHLY_FEE_GBP = 60;
 const LAST_STAGE = STAGES.length - 1;
 const WALLET_STAGE = 1;
 const EXCHANGE_STAGE = 2;
-const AGENT_PENDING_STAGE = 3;
-const AGENT_APPROVED_STAGE = 4;
+const AGENT_PENDING_STAGE = 3; // now also the final stage — see migration below
 const ASSUMED_CONVERSION_RATE = 0.15; // assumed 15% of prospects convert every 30 days
 const SOURCES = ["Referral","Telegram","Warm intro","Cold outreach","Family","Friend","Social event","Business event","Other"];
 const PROSPECT_STAGES = ["Haven't Contacted", "Discussed Bot", "Discussed 2x", "Showed Material"];
@@ -292,6 +293,7 @@ const BADGES = [
 let state = {
   clients: [],
   liveClients: [],
+  removedClients: [],
   prospects: [],
   prospectHistory: { added: 0, converted: 0, declined: 0 },
   xp: 0,
@@ -324,11 +326,12 @@ async function loadState(){
     if(res.ok){
       const loaded = await res.json();
       state = Object.assign({
-        clients: [], liveClients: [], prospects: [],
+        clients: [], liveClients: [], removedClients: [], prospects: [],
         prospectHistory: { added: 0, converted: 0, declined: 0 },
         xp: 0, earnedBadges: []
       }, loaded);
       if(!state.liveClients) state.liveClients = [];
+      if(!state.removedClients) state.removedClients = [];
       if(!state.prospects) state.prospects = [];
       if(!state.prospectHistory) state.prospectHistory = { added: 0, converted: 0, declined: 0 };
       if(!state.nextClientNumber) state.nextClientNumber = 2; // #1 reserved for the master account
@@ -378,7 +381,8 @@ async function loadState(){
         activityLog: [],
         cycleStartBalance: null,
         cycleStartDate: null,
-        dailyBalanceHistory: {}
+        dailyBalanceHistory: {},
+        billingCycle: null
       }, c));
       // Migrate clients that were at the old "Live" stage (hardcoded index 4,
       // from before Live became its own tab) into the new liveClients array.
@@ -441,6 +445,24 @@ async function loadState(){
           }
         });
         state.walletFundedMergedIntoCreated = true;
+      }
+      // One-time migration merging Agent Approved back into Agent Wallet
+      // Needs Approval, which becomes the final stage (already has the
+      // credentials-correct toggle gating advancement, so being AT the
+      // final stage already implies confirmation happened — the standalone
+      // "Agent Approved" column was one extra click with no real function).
+      // Old numbering: 0 Paid, 1 Wallet Created, 2 Exchange Account Live,
+      //                3 Agent Wallet Needs Approval, 4 Agent Approved.
+      // New numbering: 0 Paid, 1 Wallet Created, 2 Exchange Account Live,
+      //                3 Agent Wallet Needs Approval (final).
+      if(!state.agentApprovedMergedIntoPending){
+        state.clients.forEach(c => {
+          if(typeof c.stage === 'number' && c.stage === 4){
+            c.stage = 3;
+            c.agentApproved = true; // being at old stage 4 already implied this was confirmed
+          }
+        });
+        state.agentApprovedMergedIntoPending = true;
       }
     }
     note.textContent = 'synced';
@@ -615,6 +637,48 @@ function removeLiveClient(id){
   render();
 }
 
+function offboardClient(id){
+  const c = state.liveClients.find(x => x.id === id);
+  if(!c) return;
+  const proceed = confirm(
+    `Offboard ${c.name}?\n\n` +
+    `This moves them out of Live Clients into the Removed tab.\n\n` +
+    `\u26a0\ufe0f Don't forget to revoke their agent wallet on Hyperliquid — removing them here does NOT do that automatically. Their key stays valid until you revoke it there yourself.`
+  );
+  if(!proceed) return;
+  const lb = liveBalances[id];
+  c.removedDate = todayStr();
+  c.finalBalance = (lb && lb.status === 'ok') ? lb.balance : null;
+  state.liveClients = state.liveClients.filter(x => x.id !== id);
+  if(!state.removedClients) state.removedClients = [];
+  logActivity(c, `\ud83d\udeaa Offboarded from Live Clients`);
+  state.removedClients.push(c);
+  saveState();
+  render();
+}
+
+function restoreClient(id){
+  const c = (state.removedClients || []).find(x => x.id === id);
+  if(!c) return;
+  if(!confirm(`Restore ${c.name} to Live Clients?`)) return;
+  delete c.removedDate;
+  delete c.finalBalance;
+  state.removedClients = state.removedClients.filter(x => x.id !== id);
+  logActivity(c, `\u21ba Restored to Live Clients`);
+  state.liveClients.push(c);
+  saveState();
+  render();
+}
+
+function permanentlyDeleteRemovedClient(id){
+  const c = (state.removedClients || []).find(x => x.id === id);
+  if(!c) return;
+  if(!confirm(`Permanently delete ${c.name}'s record? This cannot be undone.`)) return;
+  state.removedClients = state.removedClients.filter(x => x.id !== id);
+  saveState();
+  render();
+}
+
 function addMonthsDate(d, n){ const nd = new Date(d); nd.setMonth(nd.getMonth()+n); return nd; }
 
 function nextRenewalDate(datePaidStr){
@@ -658,6 +722,8 @@ function saveEdit(id){
     alert('Client # 1 is permanently reserved for Nathan\'s own master account on the bot. Choose a different number — this client will never sync if left as 1.');
     return;
   }
+  const billingCycleEl = document.getElementById(`edit-billingCycle-${id}`);
+  const billingCycleChanged = billingCycleEl && billingCycleEl.value !== (c.billingCycle || '');
   const datePaidChanged = datePaid !== c.datePaid;
   if(name) c.name = name;
   c.source = source;
@@ -668,6 +734,13 @@ function saveEdit(id){
   c.dashboardTokenId = dashboardTokenId;
   c.dexWalletAddress = dexWalletAddress;
   c.clientNumber = clientNumber;
+  if(billingCycleEl){
+    c.billingCycle = billingCycleEl.value || null;
+    if(billingCycleChanged){
+      const label = c.billingCycle === 'A' ? 'Cycle A (1st of month)' : (c.billingCycle === 'B' ? 'Cycle B (15th of month)' : 'Not set');
+      logActivity(c, `💳 Billing cycle set to ${label}`);
+    }
+  }
 
   // The 30-day cycle baseline is now set explicitly via the Snapshot
   // Balance button, not inferred from editing the payment date — this
@@ -892,7 +965,8 @@ function render(){
   document.getElementById('tab-live').classList.toggle('active', activeTab === 'live');
   document.getElementById('tab-pipeline').classList.toggle('active', activeTab === 'pipeline');
   document.getElementById('tab-prospecting').classList.toggle('active', activeTab === 'prospecting');
-  const titles = { live: 'Live Clients', pipeline: 'Client Pipeline', prospecting: 'Prospecting' };
+  document.getElementById('tab-removed').classList.toggle('active', activeTab === 'removed');
+  const titles = { live: 'Live Clients', pipeline: 'Client Pipeline', prospecting: 'Prospecting', removed: 'Removed Clients' };
   document.getElementById('pageTitle').textContent = titles[activeTab];
 
   // Keep the "Referred by" autocomplete list current — sourced from
@@ -911,6 +985,8 @@ function render(){
     mainContent.appendChild(buildLiveClients());
   } else if(activeTab === 'pipeline'){
     mainContent.appendChild(buildFunnel());
+  } else if(activeTab === 'removed'){
+    mainContent.appendChild(buildRemovedClients());
   } else {
     mainContent.appendChild(buildProspectFunnel());
   }
@@ -973,7 +1049,7 @@ function renderStatsAndAddBar(){
     sourceSel.addEventListener('change', toggleReferredBy);
     toggleReferredBy();
 
-  } else {
+  } else if(activeTab === 'prospecting'){
     const prospectCount = state.prospects.length;
     const { added, converted } = state.prospectHistory;
     const actualRate = added > 0 ? Math.round((converted / added) * 100) : 0;
@@ -999,6 +1075,12 @@ function renderStatsAndAddBar(){
     const toggleProspectReferredBy = () => { prospectReferredByInput.style.display = prospectSourceSel.value === 'Referral' ? '' : 'none'; };
     prospectSourceSel.addEventListener('change', toggleProspectReferredBy);
     toggleProspectReferredBy();
+  } else if(activeTab === 'removed'){
+    const removedCount = (state.removedClients || []).length;
+    statsRow.innerHTML = `
+      <div class="stat"><div class="stat-val" id="statRemovedCount">${removedCount}</div><div class="stat-label">Removed</div></div>
+    `;
+    addBar.innerHTML = `<div style="color:var(--text-faint); font-size:12px; font-family:'IBM Plex Mono', monospace;">Clients land here once they're offboarded from Live Clients.</div>`;
   }
 }
 
@@ -1169,6 +1251,43 @@ function buildFunnel(){
   return funnel;
 }
 
+function buildRemovedClients(){
+  const wrap = document.createElement('div');
+  wrap.className = 'live-clients-grid';
+
+  const removed = state.removedClients || [];
+  if(removed.length === 0){
+    wrap.innerHTML = `<div class="empty-slot">No removed clients — offboarded clients from Live Clients land here.</div>`;
+    return wrap;
+  }
+
+  // Most recently removed first
+  const sorted = [...removed].sort((a,b) => (b.removedDate || '').localeCompare(a.removedDate || ''));
+
+  sorted.forEach(c => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    const finalBalanceLine = c.finalBalance != null
+      ? `<div class="payment-row">Final balance: $${Number(c.finalBalance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</div>`
+      : '';
+    card.innerHTML = `
+      <div class="card-name">${escapeHtml(c.name)}</div>
+      <div class="card-source">${escapeHtml(c.source)} · #${pad3(c.clientNumber)}${c.referredBy ? ' · ref: ' + escapeHtml(c.referredBy) : ''}</div>
+      <div class="payment-row" style="color:var(--text-faint)">Offboarded ${c.removedDate || 'unknown date'}</div>
+      ${finalBalanceLine}
+      ${activityLogBlock(c)}
+      <div class="card-actions">
+        <button class="stall-btn" title="Restore to Live Clients" onclick="restoreClient('${c.id}')">↺ Restore</button>
+        ${activityLogButton(c)}
+        <button class="stall-btn" title="Permanently delete this record" onclick="permanentlyDeleteRemovedClient('${c.id}')">✕ Delete</button>
+      </div>
+    `;
+    wrap.appendChild(card);
+  });
+
+  return wrap;
+}
+
 function buildLiveClients(){
   const wrap = document.createElement('div');
   wrap.className = 'live-clients-grid';
@@ -1258,6 +1377,14 @@ function buildLiveClients(){
             <input id="edit-datePaid-${c.id}" type="date" value="${c.datePaid || ''}" />
           </div>
           <div>
+            <label>Billing cycle</label>
+            <select id="edit-billingCycle-${c.id}">
+              <option value="" ${!c.billingCycle ? 'selected' : ''}>Not set</option>
+              <option value="A" ${c.billingCycle === 'A' ? 'selected' : ''}>Cycle A (1st of month)</option>
+              <option value="B" ${c.billingCycle === 'B' ? 'selected' : ''}>Cycle B (15th of month)</option>
+            </select>
+          </div>
+          <div>
             <label>Initial balance ($)</label>
             <input id="edit-initialBalance-${c.id}" type="number" step="0.01" value="${c.initialBalance != null ? c.initialBalance : ''}" placeholder="0.00" />
           </div>
@@ -1325,6 +1452,7 @@ function buildLiveClients(){
     const accountParts = [];
     if(c.initialBalance != null) accountParts.push(`Bal $${Number(c.initialBalance).toLocaleString()}`);
     if(c.dateFunded) accountParts.push(`Funded ${c.dateFunded}`);
+    if(c.billingCycle) accountParts.push(`Billing: Cycle ${c.billingCycle}`);
     if(c.dashboardTokenId) accountParts.push('Token ✓');
     if(c.hasPrivateKey) accountParts.push('🔑 Key set');
     const copyBtns = c.dashboardTokenId
@@ -1441,7 +1569,7 @@ function buildLiveClients(){
         <button class="stall-btn" title="Move back to Exchange (undo)" onclick="retreatToExchange('${c.id}')">← Exchange</button>
         <button class="stall-btn" title="Edit" onclick="startEdit('${c.id}')">✎</button>
         ${activityLogButton(c)}
-        <button class="stall-btn" title="Remove" onclick="removeLiveClient('${c.id}')">✕</button>
+        <button class="stall-btn" title="Offboard this client" onclick="offboardClient('${c.id}')">🚪 Offboard</button>
       </div>
     `;
     wrap.appendChild(card);
@@ -1622,6 +1750,33 @@ async function sendRenewalReminder(id, daysToRenewal, renewalDate){
     render();
   }catch(e){
     alert('Request failed: ' + e.message);
+  }
+}
+
+async function exportBackup(){
+  try{
+    const res = await fetch('/api/backup/export', {
+      headers: { ...(PIPELINE_KEY ? { 'x-pipeline-key': PIPELINE_KEY } : {}) }
+    });
+    if(!res.ok){
+      const data = await res.json().catch(() => ({}));
+      alert('Backup failed: ' + (data.error || 'unknown error'));
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="(.+)"/);
+    const filename = match ? match[1] : `orion-crm-backup-${new Date().toISOString().replace(/[:.]/g,'-')}.json`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }catch(e){
+    alert('Backup request failed: ' + e.message);
   }
 }
 
