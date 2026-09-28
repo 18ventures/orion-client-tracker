@@ -242,6 +242,7 @@
       </div>
     </div>
     <button type="button" class="copy-mini" style="margin-left:14px;padding:6px 12px;font-size:11px" title="Download a full backup of everything in this CRM" onclick="exportBackup()">⬇ Backup</button>
+    <button type="button" class="copy-mini" style="margin-left:8px;padding:6px 12px;font-size:11px" title="Sign out" onclick="logout()">Sign out</button>
   </div>
 
   <div class="tabs">
@@ -306,9 +307,20 @@ let state = {
 let activeTab = 'live';
 let editingId = null;
 
-// Optional: if you set PIPELINE_PASSWORD in Railway, put the same value here
-// so write requests authenticate. Leave blank if you didn't set one.
-const PIPELINE_KEY = '2tPq7jeoLSD8QGsXvpogmqMD8-fH-XSI';
+// Auth is a login cookie set by /login — no secret lives in this file.
+// Any 401 from the server sends you back to the login page.
+(function(){
+  const _fetch = window.fetch.bind(window);
+  window.fetch = async (...args) => {
+    const res = await _fetch(...args);
+    if(res.status === 401){ location.href = '/login'; }
+    return res;
+  };
+})();
+async function logout(){
+  try{ await fetch('/api/logout', { method: 'POST' }); }catch(e){}
+  location.href = '/login';
+}
 
 // The bot's own Railway URL — used to build a client's full shareable
 // dashboard link (base + "?t=" + their token). Update this if the bot's
@@ -480,7 +492,7 @@ async function saveState(){
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(PIPELINE_KEY ? { 'x-pipeline-key': PIPELINE_KEY } : {})
+        
       },
       body: JSON.stringify(state)
     });
@@ -761,7 +773,7 @@ async function setClientKey(id){
   try{
     const res = await fetch(`/api/clients/${id}/key`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(PIPELINE_KEY ? { 'x-pipeline-key': PIPELINE_KEY } : {}) },
+      headers: { 'Content-Type': 'application/json',  },
       body: JSON.stringify({ privateKey: val })
     });
     const data = await res.json();
@@ -787,7 +799,7 @@ async function clearClientKey(id){
   try{
     const res = await fetch(`/api/clients/${id}/key`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(PIPELINE_KEY ? { 'x-pipeline-key': PIPELINE_KEY } : {}) },
+      headers: { 'Content-Type': 'application/json',  },
       body: JSON.stringify({ privateKey: '' })
     });
     const data = await res.json();
@@ -811,7 +823,7 @@ async function revealClientKey(id){
   try{
     const res = await fetch(`/api/clients/${id}/key/reveal`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(PIPELINE_KEY ? { 'x-pipeline-key': PIPELINE_KEY } : {}) }
+      headers: { 'Content-Type': 'application/json',  }
     });
     const data = await res.json();
     const span = document.getElementById(`revealedKey-${id}`);
@@ -1760,7 +1772,7 @@ async function sendRenewalReminder(id, daysToRenewal, renewalDate){
   try{
     const res = await fetch(`/api/clients/${id}/send-renewal-reminder`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(PIPELINE_KEY ? { 'x-pipeline-key': PIPELINE_KEY } : {}) },
+      headers: { 'Content-Type': 'application/json',  },
       body: JSON.stringify({ message })
     });
     const data = await res.json();
@@ -1776,7 +1788,7 @@ async function sendRenewalReminder(id, daysToRenewal, renewalDate){
 async function exportBackup(){
   try{
     const res = await fetch('/api/backup/export', {
-      headers: { ...(PIPELINE_KEY ? { 'x-pipeline-key': PIPELINE_KEY } : {}) }
+      headers: {  }
     });
     if(!res.ok){
       const data = await res.json().catch(() => ({}));
@@ -1805,7 +1817,7 @@ async function downloadStatement(id){
   if(!c) return;
   try{
     const res = await fetch(`/api/clients/${id}/statement`, {
-      headers: { ...(PIPELINE_KEY ? { 'x-pipeline-key': PIPELINE_KEY } : {}) }
+      headers: {  }
     });
     if(!res.ok){
       const data = await res.json().catch(() => ({}));
@@ -1833,7 +1845,7 @@ async function snapshotClientBalance(id){
   try{
     const res = await fetch(`/api/clients/${id}/snapshot-balance`, {
       method: 'POST',
-      headers: { ...(PIPELINE_KEY ? { 'x-pipeline-key': PIPELINE_KEY } : {}) }
+      headers: {  }
     });
     const data = await res.json();
     if(!res.ok){ alert('Failed to snapshot balance: ' + (data.error || 'unknown error')); return; }
@@ -1864,7 +1876,7 @@ function clearClientSnapshot(id){
 async function loadLiveBalances(){
   try{
     const res = await fetch('/api/clients/balances', {
-      headers: { ...(PIPELINE_KEY ? { 'x-pipeline-key': PIPELINE_KEY } : {}) }
+      headers: {  }
     });
     if(!res.ok) return;
     const data = await res.json();
@@ -1876,7 +1888,7 @@ async function loadLiveBalances(){
 async function loadDailyPnl(){
   try{
     const res = await fetch('/api/clients/daily-pnl', {
-      headers: { ...(PIPELINE_KEY ? { 'x-pipeline-key': PIPELINE_KEY } : {}) }
+      headers: {  }
     });
     if(!res.ok) return;
     const data = await res.json();
