@@ -823,16 +823,20 @@ async function revealClientKey(id){
   try{
     const res = await fetch(`/api/clients/${id}/key/reveal`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json',  }
+      headers: { 'Content-Type': 'application/json' }
     });
-    const data = await res.json();
+    const raw = await res.text();
+    let data = {};
+    try{ data = JSON.parse(raw); }catch(e){}
     const span = document.getElementById(`revealedKey-${id}`);
     const copyBtn = document.getElementById(`copyKeyBtn-${id}`);
-    if(res.ok && span){
+    if(res.ok && data.privateKey && span){
       span.textContent = data.privateKey;
       if(copyBtn) copyBtn.disabled = false;
+    } else if(res.ok && !span){
+      alert('Key was fetched but the page has nowhere to show it (client id ' + id + ' not on screen). Close and reopen the client, then try again.');
     } else {
-      alert('Failed to reveal key: ' + (data.error || 'unknown error'));
+      alert('Failed to reveal key (HTTP ' + res.status + '): ' + (data.error || raw.slice(0, 200) || 'empty response'));
     }
   }catch(e){
     alert('Request failed: ' + e.message);
